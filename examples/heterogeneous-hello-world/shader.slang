@@ -3,8 +3,10 @@
 //TEST_INPUT:ubuffer(random(float, 4096, -1.0, 1.0), stride=4):name=ioBuffer
 RWStructuredBuffer<float> convertBuffer(Ptr<gfx::BufferResource> x);
 
+[shader("compute")]
 [numthreads(4, 1, 1)]
-void computeMain(uniform RWStructuredBuffer<float> ioBuffer, uint3 dispatchThreadID : SV_DispatchThreadID)
+void computeMain(uniform RWStructuredBuffer<float> ioBuffer,
+    uniform RWStructuredBuffer<float> ioBuffer2, uint3 dispatchThreadID : SV_DispatchThreadID)
 {
     uint tid = dispatchThreadID.x;
 
@@ -12,6 +14,7 @@ void computeMain(uniform RWStructuredBuffer<float> ioBuffer, uint3 dispatchThrea
     float o = i < 0.5 ? (i + i) : sqrt(i);
 
     ioBuffer[tid] = o;
+    ioBuffer[tid] = o + 1;
 }
 
 // Forward declarations of gfx types
@@ -54,10 +57,13 @@ public bool executeComputation() {
     let window = createWindow(windowWidth, windowHeight);
     let renderer = createRenderer(windowWidth, windowHeight, window);
     let structuredBuffer = createStructuredBuffer(renderer, initialArray);
+    let structuredBuffer2 = createStructuredBuffer(renderer, initialArray);
     __GPU_FOREACH(renderer, uint3(4, 1, 1), LAMBDA(uint3 dispatchThreadID)
-        { computeMain(convertBuffer(structuredBuffer), dispatchThreadID) ; });
+        { computeMain(convertBuffer(structuredBuffer),
+            convertBuffer(structuredBuffer2), dispatchThreadID) ; });
     printInitialValues(initialArray, 4);
     print_output(renderer, structuredBuffer, 4);
+    print_output(renderer, structuredBuffer2, 4);
 
 
     return true;
