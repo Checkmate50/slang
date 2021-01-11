@@ -19,10 +19,10 @@
     </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
-    <ProjectGuid>{150CAA5A-0177-6A66-AA92-CFCB96DC2D49}</ProjectGuid>
+    <ProjectGuid>{B579BBB5-A1E1-8183-0A4D-9699F6D3986F}</ProjectGuid>
     <IgnoreWarnCompileDuplicatedFilename>true</IgnoreWarnCompileDuplicatedFilename>
     <Keyword>Win32Proj</Keyword>
-    <RootNamespace>heterogeneous-hello-world</RootNamespace>
+    <RootNamespace>cuda-hello-world</RootNamespace>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -68,29 +68,29 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <LinkIncremental>true</LinkIncremental>
     <OutDir>..\..\..\bin\windows-x86\debug\</OutDir>
-    <IntDir>..\..\..\intermediate\windows-x86\debug\heterogeneous-hello-world\</IntDir>
-    <TargetName>heterogeneous-hello-world</TargetName>
+    <IntDir>..\..\..\intermediate\windows-x86\debug\cuda-hello-world\</IntDir>
+    <TargetName>cuda-hello-world</TargetName>
     <TargetExt>.exe</TargetExt>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
     <OutDir>..\..\..\bin\windows-x64\debug\</OutDir>
-    <IntDir>..\..\..\intermediate\windows-x64\debug\heterogeneous-hello-world\</IntDir>
-    <TargetName>heterogeneous-hello-world</TargetName>
+    <IntDir>..\..\..\intermediate\windows-x64\debug\cuda-hello-world\</IntDir>
+    <TargetName>cuda-hello-world</TargetName>
     <TargetExt>.exe</TargetExt>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
     <OutDir>..\..\..\bin\windows-x86\release\</OutDir>
-    <IntDir>..\..\..\intermediate\windows-x86\release\heterogeneous-hello-world\</IntDir>
-    <TargetName>heterogeneous-hello-world</TargetName>
+    <IntDir>..\..\..\intermediate\windows-x86\release\cuda-hello-world\</IntDir>
+    <TargetName>cuda-hello-world</TargetName>
     <TargetExt>.exe</TargetExt>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
     <OutDir>..\..\..\bin\windows-x64\release\</OutDir>
-    <IntDir>..\..\..\intermediate\windows-x64\release\heterogeneous-hello-world\</IntDir>
-    <TargetName>heterogeneous-hello-world</TargetName>
+    <IntDir>..\..\..\intermediate\windows-x64\release\cuda-hello-world\</IntDir>
+    <TargetName>cuda-hello-world</TargetName>
     <TargetExt>.exe</TargetExt>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
@@ -162,12 +162,10 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\..\examples\heterogeneous-hello-world\main.cpp" />
-    <ClCompile Include="..\..\..\examples\heterogeneous-hello-world\shader.cpp" />
-    <ClCompile Include="..\..\..\examples\heterogeneous-hello-world\shader2.cpp" />
+    <ClCompile Include="..\..\..\examples\cuda-hello-world\main.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="..\..\..\examples\heterogeneous-hello-world\shader.slang" />
+    <None Include="..\..\..\examples\cuda-hello-world\shader.slang" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\slang\slang.vcxproj">

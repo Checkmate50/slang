@@ -569,6 +569,9 @@ if isTargetWindows then
     -- Let's go ahead and set up the projects for our other example now.
     example "model-viewer"
 
+    example "cuda-hello-world"
+        kind "ConsoleApp"
+
     example "heterogeneous-hello-world"
         kind "ConsoleApp"
 
