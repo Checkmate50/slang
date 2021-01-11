@@ -164,7 +164,6 @@
   <ItemGroup>
     <ClCompile Include="..\..\..\examples\heterogeneous-hello-world\main.cpp" />
     <ClCompile Include="..\..\..\examples\heterogeneous-hello-world\shader.cpp" />
-    <ClCompile Include="..\..\..\examples\heterogeneous-hello-world\shader2.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\..\examples\heterogeneous-hello-world\shader.slang" />
