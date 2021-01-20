@@ -39,11 +39,22 @@ using namespace Slang;
 // laid out in the manner that the generated slang code expects. 
 #define SLANG_PRELUDE_NAMESPACE CPPPrelude
 #include "../../prelude/slang-cpp-types.h"
+#include "gfx/render.h"
+#include "gfx/cuda/render-cuda.h"
+#include "tools/graphics-app-framework/window.h"
+
+int gWindowWidth = 1024;
+int gWindowHeight = 768;
+
+ComPtr<gfx::IRenderer>      gRenderer;
+gfx::Window*                gWindow;
+RefPtr<gfx::BufferResource> gConstantBuffer;
 
 struct UniformState;
 
 static SlangResult _innerMain(int argc, char** argv)
 {
+
     // First, we need to create a "session" for interacting with the Slang
     // compiler. This scopes all of our application's interactions
     // with the Slang library. At the moment, creating a session causes
@@ -80,10 +91,10 @@ static SlangResult _innerMain(int argc, char** argv)
     //
     SlangCompileRequest* slangRequest = spCreateCompileRequest(slangSession);
 
-    // We would like to request a CPU code that can be executed directly on the host -
-    // which is the 'SLANG_HOST_CALLABLE' target. 
+    // We would like to request a CUDA code (which can be executed on the host) -
+    // which is the 'SLANG_CUDA_SOURCE' target. 
     // If we wanted a just a shared library/dll, we could have used SLANG_SHARED_LIBRARY.
-    int targetIndex = spAddCodeGenTarget(slangRequest, SLANG_HOST_CALLABLE);
+    int targetIndex = spAddCodeGenTarget(slangRequest, SLANG_CUDA_SOURCE);
 
     // Set the target flag to indicate that we want to compile all the entrypoints in the
     // slang shader file into a library.
@@ -126,23 +137,26 @@ static SlangResult _innerMain(int argc, char** argv)
         return compileRes;
     }
 
-    // Get the 'shared library' (note that this doesn't necessarily have to be implemented as a shared library
-    // it's just an interface to executable code).
-    ComPtr<ISlangSharedLibrary> sharedLibrary;
-    SLANG_RETURN_ON_FAIL(spGetTargetHostCallable(slangRequest, 0, sharedLibrary.writeRef()));
+    // If compilation was successful, then we will extract the code for
+    // our entry point as a "blob".
+    //
+    // If you are using a D3D API, then your application may want to
+    // take advantage of the fact that these blobs are binary compatible
+    // with the `ID3DBlob`, `ID3D10Blob`, etc. interfaces.
+    //
+    ISlangBlob* computeShaderBlob = nullptr;
+    spGetTargetCodeBlob(slangRequest, 0, &computeShaderBlob);
 
-    // Once we have the sharedLibrary, we no longer need the request
+    // We extract the begin/end pointers to the output code buffers
+    // using operations on the `ISlangBlob` interface.
+    //
+    char const* computeCode = (char const*) computeShaderBlob->getBufferPointer();
+    char const* computeCodeEnd = computeCode + computeShaderBlob->getBufferSize();
+
+    // Once we have the shader blobs, it is safe to destroy the compile request
     // unless we want to use reflection, to for example workout how 'UniformState' and 'UniformEntryPointParams' are laid out
     // at runtime. We don't do that here - as we hard code the structures. 
     spDestroyCompileRequest(slangRequest);
-
-    // Get the function we are going to execute 
-    const char entryPointName[] = "computeMain";
-    CPPPrelude::ComputeFunc func = (CPPPrelude::ComputeFunc)sharedLibrary->findFuncByName(entryPointName);
-    if (!func)
-    {
-        return SLANG_FAIL;
-    }
 
     // Define the uniform state structure that is *specific* to our shader defined in shader.slang
     // That the layout of the structure can be determined through reflection, or can be inferred from
@@ -179,10 +193,44 @@ static SlangResult _innerMain(int argc, char** argv)
     varyingInput.startGroupID = startGroupID;
     varyingInput.endGroupID = endGroupID;
 
-    // We don't have any entry point parameters so that's passed as NULL
-    // We need to cast our definition of the uniform state to the undefined CPPPrelude::UniformState as
-    // that type is just a name to indicate what kind of thing needs to be passed in.
-    func(&varyingInput, NULL, &uniformState);
+    gfx::createCUDARenderer(gRenderer.writeRef());
+    
+    gfx::WindowDesc windowDesc;
+    windowDesc.title = "CUDA Hello, World!";
+    windowDesc.width = gWindowWidth;
+    windowDesc.height = gWindowHeight;
+    gWindow = gfx::createWindow(windowDesc);
+
+    gfx::IRenderer::Desc rendererDesc;
+    rendererDesc.width = gWindowWidth;
+    rendererDesc.height = gWindowHeight;
+    {
+        Result res = gRenderer->initialize(rendererDesc, getPlatformWindowHandle(gWindow));
+        if(SLANG_FAILED(res)) return res;
+    }
+
+    int constantBufferSize = 16 * sizeof(float);
+    gfx::BufferResource::Desc constantBufferDesc;
+    constantBufferDesc.init(constantBufferSize);
+    constantBufferDesc.setDefaults(gfx::Resource::Usage::ConstantBuffer);
+    StdWriters::initDefaultSingleton();
+    constantBufferDesc.cpuAccessFlags = gfx::Resource::AccessFlag::Write;
+    gConstantBuffer = gRenderer->createBufferResource(
+        gfx::Resource::Usage::ConstantBuffer,
+        constantBufferDesc);
+    if(!gConstantBuffer) return SLANG_FAIL;
+
+    gfx::ShaderProgram::KernelDesc kernelDescs[] =
+    {
+        { gfx::StageType::Compute, computeCode, computeCodeEnd },
+    };
+
+    gfx::ShaderProgram::Desc programDesc;
+    programDesc.pipelineType = gfx::PipelineType::Compute;
+    programDesc.kernels = &kernelDescs[0];
+    programDesc.kernelCount = 1;
+
+    auto shaderProgram = gRenderer->createProgram(programDesc);    
 
     // bufferContents holds the output
 
