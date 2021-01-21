@@ -91,7 +91,7 @@ static SlangResult _innerMain(int argc, char** argv)
     //
     SlangCompileRequest* slangRequest = spCreateCompileRequest(slangSession);
 
-    // We would like to request a CUDA code (which can be executed on the host) -
+    // We would like to request a CUDA code (which can be executed on a device) -
     // which is the 'SLANG_CUDA_SOURCE' target. 
     // If we wanted a just a shared library/dll, we could have used SLANG_SHARED_LIBRARY.
     int targetIndex = spAddCodeGenTarget(slangRequest, SLANG_CUDA_SOURCE);
@@ -213,7 +213,6 @@ static SlangResult _innerMain(int argc, char** argv)
     gfx::BufferResource::Desc constantBufferDesc;
     constantBufferDesc.init(constantBufferSize);
     constantBufferDesc.setDefaults(gfx::Resource::Usage::ConstantBuffer);
-    StdWriters::initDefaultSingleton();
     constantBufferDesc.cpuAccessFlags = gfx::Resource::AccessFlag::Write;
     gConstantBuffer = gRenderer->createBufferResource(
         gfx::Resource::Usage::ConstantBuffer,
