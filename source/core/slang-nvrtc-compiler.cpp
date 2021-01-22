@@ -514,6 +514,7 @@ SlangResult NVRTCDownstreamCompiler::compile(const CompileOptions& options, RefP
             //
             "nvrtc",
 
+            "nvrtc64_112_0",
             "nvrtc64_110_0",
             "nvrtc64_102_0",
             "nvrtc64_101_0",

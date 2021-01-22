@@ -1195,6 +1195,7 @@ private:
         if (desc.kernelCount != 1)
             return SLANG_E_INVALID_ARG;
         RefPtr<CUDAShaderProgram> cudaProgram = new CUDAShaderProgram();
+
         SLANG_CUDA_RETURN_ON_FAIL(cuModuleLoadData(&cudaProgram->cudaModule, desc.kernels[0].codeBegin));
         SLANG_CUDA_RETURN_ON_FAIL(
             cuModuleGetFunction(&cudaProgram->cudaKernel, cudaProgram->cudaModule, desc.kernels[0].entryPointName));

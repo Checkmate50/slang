@@ -64,6 +64,7 @@ static SlangResult _innerMain(int argc, char** argv)
     //
     // NOTE that we use attach instead of setting via assignment, as assignment will increase
     // the refcount. spCreateSession returns a IGlobalSession with a refcount of 1.
+
     ComPtr<slang::IGlobalSession> slangSession;
     slangSession.attach(spCreateSession(NULL));
 
@@ -94,7 +95,7 @@ static SlangResult _innerMain(int argc, char** argv)
     // We would like to request a CUDA code (which can be executed on a device) -
     // which is the 'SLANG_CUDA_SOURCE' target. 
     // If we wanted a just a shared library/dll, we could have used SLANG_SHARED_LIBRARY.
-    int targetIndex = spAddCodeGenTarget(slangRequest, SLANG_CUDA_SOURCE);
+    int targetIndex = spAddCodeGenTarget(slangRequest, SLANG_PTX);
 
     // Set the target flag to indicate that we want to compile all the entrypoints in the
     // slang shader file into a library.
@@ -209,7 +210,7 @@ static SlangResult _innerMain(int argc, char** argv)
         if(SLANG_FAILED(res)) return res;
     }
 
-    int constantBufferSize = 16 * sizeof(float);
+    /*int constantBufferSize = 16 * sizeof(float);
     gfx::BufferResource::Desc constantBufferDesc;
     constantBufferDesc.init(constantBufferSize);
     constantBufferDesc.setDefaults(gfx::Resource::Usage::ConstantBuffer);
@@ -217,13 +218,14 @@ static SlangResult _innerMain(int argc, char** argv)
     gConstantBuffer = gRenderer->createBufferResource(
         gfx::Resource::Usage::ConstantBuffer,
         constantBufferDesc);
-    if(!gConstantBuffer) return SLANG_FAIL;
+    if(!gConstantBuffer) return SLANG_FAIL;*/
 
     gfx::ShaderProgram::KernelDesc kernelDescs[] =
     {
         { gfx::StageType::Compute, computeCode, computeCodeEnd },
     };
 
+    kernelDescs[0].entryPointName = "computeMain";
     gfx::ShaderProgram::Desc programDesc;
     programDesc.pipelineType = gfx::PipelineType::Compute;
     programDesc.kernels = &kernelDescs[0];

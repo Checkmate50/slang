@@ -10,7 +10,7 @@ void computeMain(uint3 dispatchThreadID : SV_DispatchThreadID)
     /*uint tid = dispatchThreadID.x;
 
     float i = ioBuffer[tid];
-    float o = i + i;
+    float o = i < .5 ? i + i : sqrt(i);
 
     ioBuffer[tid] = o;*/
 }

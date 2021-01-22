@@ -1,6 +1,8 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 14
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.30907.101
+MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "core", "build\visual-studio\core\core.vcxproj", "{F9BE7957-8399-899E-0C49-E714FDDD4B65}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "examples", "examples", "{EB5FC2C6-D72D-B6CC-C0C1-26F3AC2E9231}"
@@ -81,8 +83,8 @@ Global
 		{4B47A364-37C4-96A7-6041-97BB4C1D333B}.Release|Win32.Build.0 = Release|Win32
 		{4B47A364-37C4-96A7-6041-97BB4C1D333B}.Release|x64.ActiveCfg = Release|x64
 		{4B47A364-37C4-96A7-6041-97BB4C1D333B}.Release|x64.Build.0 = Release|x64
-		{B579BBB5-A1E1-8183-0A4D-9699F6D3986F}.Debug|Win32.ActiveCfg = Debug|Win32
-		{B579BBB5-A1E1-8183-0A4D-9699F6D3986F}.Debug|Win32.Build.0 = Debug|Win32
+		{B579BBB5-A1E1-8183-0A4D-9699F6D3986F}.Debug|Win32.ActiveCfg = Debug|x64
+		{B579BBB5-A1E1-8183-0A4D-9699F6D3986F}.Debug|Win32.Build.0 = Debug|x64
 		{B579BBB5-A1E1-8183-0A4D-9699F6D3986F}.Debug|x64.ActiveCfg = Debug|x64
 		{B579BBB5-A1E1-8183-0A4D-9699F6D3986F}.Debug|x64.Build.0 = Debug|x64
 		{B579BBB5-A1E1-8183-0A4D-9699F6D3986F}.Release|Win32.ActiveCfg = Release|Win32
@@ -246,5 +248,8 @@ Global
 		{7F773DD9-EB8F-2403-B43C-B49C2014B99C} = {FD47AE19-69FD-260F-F2F1-20E65EA61D13}
 		{66174227-8541-41FC-A6DF-4764FC66F78E} = {FD47AE19-69FD-260F-F2F1-20E65EA61D13}
 		{0C768A18-1D25-4000-9F37-DA5FE99E3B64} = {FD47AE19-69FD-260F-F2F1-20E65EA61D13}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {76226CF9-5AF8-43C5-81BD-6302448EDF1B}
 	EndGlobalSection
 EndGlobal
