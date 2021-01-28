@@ -83,7 +83,7 @@ static SlangResult _addCUDAPrelude(const String& rootPath, slang::IGlobalSession
     String includePath;
     SLANG_RETURN_ON_FAIL(TestToolUtil::getIncludePath(rootPath, "prelude/slang-cuda-prelude.h", includePath));
     StringBuilder prelude;
-    //prelude << "#include \"" << includePath << "\"\n\n";
+    prelude << "#include \"" << includePath << "\"\n\n";
     session->setLanguagePrelude(SLANG_SOURCE_LANGUAGE_CUDA, prelude.getBuffer());
     return SLANG_OK;
 }

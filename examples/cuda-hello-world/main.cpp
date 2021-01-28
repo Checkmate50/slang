@@ -50,6 +50,10 @@ ComPtr<gfx::IRenderer>      gRenderer;
 gfx::Window*                gWindow;
 RefPtr<gfx::BufferResource> gConstantBuffer;
 
+RefPtr<gfx::ShaderProgram>  gProgram;
+
+RefPtr<gfx::PipelineState>  gPipelineState;
+
 struct UniformState;
 
 static SlangResult _innerMain(int argc, char** argv)
@@ -154,7 +158,10 @@ static SlangResult _innerMain(int argc, char** argv)
     char const* computeCode = (char const*) computeShaderBlob->getBufferPointer();
     char const* computeCodeEnd = computeCode + computeShaderBlob->getBufferSize();
 
-    // Once we have the shader blobs, it is safe to destroy the compile request
+    auto shaderReflection = (slang::ShaderReflection*)spGetReflection(slangRequest);
+    slang::TypeLayoutReflection* slangTypeLayout;
+
+    // Once we have the shader blobs and reflection information, it is safe to destroy the compile request
     // unless we want to use reflection, to for example workout how 'UniformState' and 'UniformEntryPointParams' are laid out
     // at runtime. We don't do that here - as we hard code the structures. 
     spDestroyCompileRequest(slangRequest);
@@ -210,7 +217,7 @@ static SlangResult _innerMain(int argc, char** argv)
         if(SLANG_FAILED(res)) return res;
     }
 
-    /*int constantBufferSize = 16 * sizeof(float);
+    int constantBufferSize = 4 * sizeof(float);
     gfx::BufferResource::Desc constantBufferDesc;
     constantBufferDesc.init(constantBufferSize);
     constantBufferDesc.setDefaults(gfx::Resource::Usage::ConstantBuffer);
@@ -218,7 +225,7 @@ static SlangResult _innerMain(int argc, char** argv)
     gConstantBuffer = gRenderer->createBufferResource(
         gfx::Resource::Usage::ConstantBuffer,
         constantBufferDesc);
-    if(!gConstantBuffer) return SLANG_FAIL;*/
+    if(!gConstantBuffer) return SLANG_FAIL;
 
     gfx::ShaderProgram::KernelDesc kernelDescs[] =
     {
@@ -231,7 +238,25 @@ static SlangResult _innerMain(int argc, char** argv)
     programDesc.kernels = &kernelDescs[0];
     programDesc.kernelCount = 1;
 
-    auto shaderProgram = gRenderer->createProgram(programDesc);    
+    gProgram = gRenderer->createProgram(programDesc);
+
+    auto shaderObjectLayout = gRenderer->createShaderObjectLayout(slangTypeLayout);
+    if (!shaderObjectLayout) return SLANG_FAIL;
+
+    auto shaderObject = gRenderer->createShaderObject(shaderObjectLayout);
+    auto shaderObjectResult = gRenderer->bindRootShaderObject(gfx::PipelineType::Compute, shaderObject);
+    if (!shaderObjectResult) return SLANG_FAIL;
+
+    gfx::ComputePipelineStateDesc desc;
+    desc.program = gProgram;
+    desc.rootShaderObjectLayout = shaderObjectLayout;
+    auto pipelineState = gRenderer->createComputePipelineState(desc);
+    if(!pipelineState) return SLANG_FAIL;
+
+    gPipelineState = pipelineState;
+
+    gRenderer->setPipelineState(gfx::PipelineType::Compute, gPipelineState);
+    gRenderer->dispatchCompute(4, 1, 1);
 
     // bufferContents holds the output
 
