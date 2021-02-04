@@ -48,7 +48,7 @@ int gWindowHeight = 768;
 
 ComPtr<gfx::IRenderer>      gRenderer;
 gfx::Window*                gWindow;
-RefPtr<gfx::BufferResource> gConstantBuffer;
+RefPtr<gfx::BufferResource> gBuffer;
 
 RefPtr<gfx::ShaderProgram>  gProgram;
 
@@ -58,148 +58,102 @@ struct UniformState;
 
 static SlangResult _innerMain(int argc, char** argv)
 {
+    ComPtr<slang::IGlobalSession> slangGlobalSession;
+    slangGlobalSession.attach(spCreateSession(NULL));
 
-    // First, we need to create a "session" for interacting with the Slang
-    // compiler. This scopes all of our application's interactions
-    // with the Slang library. At the moment, creating a session causes
-    // Slang to load and validate its standard library, so this is a
-    // somewhat heavy-weight operation. When possible, an application
-    // should try to re-use the same session across multiple compiles.
-    //
-    // NOTE that we use attach instead of setting via assignment, as assignment will increase
-    // the refcount. spCreateSession returns a IGlobalSession with a refcount of 1.
+    TestToolUtil::setSessionDefaultPreludeFromExePath(argv[0], slangGlobalSession);
 
-    ComPtr<slang::IGlobalSession> slangSession;
-    slangSession.attach(spCreateSession(NULL));
+    SlangCompileRequest* slangPTXRequest = spCreateCompileRequest(slangGlobalSession);
 
-    // As touched on earlier, in order to generate the final executable code,
-    // the slang code is converted into C++, and that C++ needs a 'prelude' which
-    // is just definitions that the generated code needed to work correctly.
-    // There is a simple default definition of a prelude provided in the prelude
-    // directory called 'slang-cpp-prelude.h'.
-    // 
-    // We need to tell slang either the contents of the prelude, or suitable include/s
-    // that will work. The actual API call to set the prelude is `setPrelude`
-    // and this just sets for a specific language a bit of text placed before generated code.
-    //
-    // Most downstream C++ compilers work on files. In that case slang may generate temporary
-    // files that contain the generated code. Typically the generated files  will not be in the
-    // same directory as the original source so handling includes becomes awkward. The mechanism used here
-    // is for the prelude code to be an *absolute* path to the 'slang-cpp-prelude.h' - which means
-    // this will work wherever the generated code is, and allows accessing other files via relative paths.
-    //
-    // Look at the source to TestToolUtil::setSessionDefaultPreludeFromExePath to see what's involed. 
-    TestToolUtil::setSessionDefaultPreludeFromExePath(argv[0], slangSession);
+    int targetIndex = spAddCodeGenTarget(slangPTXRequest, SLANG_PTX);
+    spSetTargetFlags(slangPTXRequest, targetIndex, SLANG_TARGET_FLAG_GENERATE_WHOLE_PROGRAM);
 
-    // A compile request represents a single invocation of the compiler,
-    // to process some inputs and produce outputs (or errors).
-    //
-    SlangCompileRequest* slangRequest = spCreateCompileRequest(slangSession);
+    int translationUnitIndex = spAddTranslationUnit(slangPTXRequest, SLANG_SOURCE_LANGUAGE_SLANG, nullptr);
+    spAddTranslationUnitSourceFile(slangPTXRequest, translationUnitIndex, "shader.slang");
+    const SlangResult compilePTXRes = spCompile(slangPTXRequest);
 
-    // We would like to request a CUDA code (which can be executed on a device) -
-    // which is the 'SLANG_CUDA_SOURCE' target. 
-    // If we wanted a just a shared library/dll, we could have used SLANG_SHARED_LIBRARY.
-    int targetIndex = spAddCodeGenTarget(slangRequest, SLANG_PTX);
-
-    // Set the target flag to indicate that we want to compile all the entrypoints in the
-    // slang shader file into a library.
-    spSetTargetFlags(slangRequest, targetIndex, SLANG_TARGET_FLAG_GENERATE_WHOLE_PROGRAM);
-
-    // A compile request can include one or more "translation units," which more or
-    // less amount to individual source files (think `.c` files, not the `.h` files they
-    // might include).
-    //
-    // For this example, our code will all be in the Slang language. The user may
-    // also specify HLSL input here, but that currently doesn't affect the compiler's
-    // behavior much.
-    //
-    int translationUnitIndex = spAddTranslationUnit(slangRequest, SLANG_SOURCE_LANGUAGE_SLANG, nullptr);
-
-    // We will load source code for our translation unit from the file `shader.slang`.
-    // There are also variations of this API for adding source code from application-provided buffers.
-    //
-    spAddTranslationUnitSourceFile(slangRequest, translationUnitIndex, "shader.slang");
-
-    // Once all of the input options for the compiler have been specified,
-    // we can invoke `spCompile` to run the compiler and see if any errors
-    // were detected.
-    //
-    const SlangResult compileRes = spCompile(slangRequest);
-
-    // Even if there were no errors that forced compilation to fail, the
-    // compiler may have produced "diagnostic" output such as warnings.
-    // We will go ahead and print that output here.
-    //
-    if(auto diagnostics = spGetDiagnosticOutput(slangRequest))
+    if (auto diagnostics = spGetDiagnosticOutput(slangPTXRequest))
     {
         printf("%s", diagnostics);
     }
 
     // If compilation failed, there is no point in continuing any further.
-    if(SLANG_FAILED(compileRes))
+    if (SLANG_FAILED(compilePTXRes))
     {
-        spDestroyCompileRequest(slangRequest);
-        return compileRes;
+        spDestroyCompileRequest(slangPTXRequest);
+        return compilePTXRes;
     }
 
-    // If compilation was successful, then we will extract the code for
-    // our entry point as a "blob".
-    //
-    // If you are using a D3D API, then your application may want to
-    // take advantage of the fact that these blobs are binary compatible
-    // with the `ID3DBlob`, `ID3D10Blob`, etc. interfaces.
-    //
-    ISlangBlob* computeShaderBlob = nullptr;
-    spGetTargetCodeBlob(slangRequest, 0, &computeShaderBlob);
+    // We build up another compilation request to get the raw CUDA code
+    // This raw CUDA code is necessary to build the module description
+    slang::TargetDesc targetDesc;
+    targetDesc.format = SLANG_CUDA_SOURCE;
+    targetDesc.profile = spFindProfile(slangGlobalSession, "sm_5_0");
 
-    // We extract the begin/end pointers to the output code buffers
-    // using operations on the `ISlangBlob` interface.
-    //
+    slang::SessionDesc sessionDesc;
+    sessionDesc.targetCount = 1;
+    sessionDesc.targets = &targetDesc;
+
+    ComPtr<slang::ISession> slangSession;
+    slangGlobalSession->createSession(sessionDesc, slangSession.writeRef());
+
+    SlangCompileRequest* slangCUDARequest;
+    slangSession->createCompileRequest(&slangCUDARequest);
+
+    int translationCUDAUnitIndex = spAddTranslationUnit(slangCUDARequest, SLANG_SOURCE_LANGUAGE_SLANG, nullptr);
+    spAddTranslationUnitSourceFile(slangCUDARequest, translationCUDAUnitIndex, "shader.slang");
+    const SlangResult compileCUDARes = spCompile(slangCUDARequest);
+
+    if (auto diagnostics = spGetDiagnosticOutput(slangCUDARequest))
+    {
+        printf("%s", diagnostics);
+    }
+
+    // If compilation failed, there is no point in continuing any further.
+    if (SLANG_FAILED(compileCUDARes))
+    {
+        spDestroyCompileRequest(slangCUDARequest);
+        return compileCUDARes;
+    }
+
+    // Here we use the actual raw CUDA code to get the module information
+    ComPtr<slang::IModule> slangModule;
+    spCompileRequest_getModule(slangCUDARequest, translationCUDAUnitIndex, slangModule.writeRef());
+
+    ComPtr<slang::IEntryPoint> entryPoint;
+    slangModule->findEntryPointByName("computeMain", entryPoint.writeRef());
+    if (!entryPoint) return SLANG_FAIL;
+
+    ComPtr<slang::IComponentType> linkedProgram;
+    entryPoint->link(linkedProgram.writeRef());
+    if (!linkedProgram) return SLANG_FAIL;
+
+    ISlangBlob* computeShaderBlob = nullptr;
+    spGetTargetCodeBlob(slangPTXRequest, 0, &computeShaderBlob);
+    if (!computeShaderBlob) return SLANG_FAIL;
+
     char const* computeCode = (char const*) computeShaderBlob->getBufferPointer();
     char const* computeCodeEnd = computeCode + computeShaderBlob->getBufferSize();
 
-    auto shaderReflection = (slang::ShaderReflection*)spGetReflection(slangRequest);
-    slang::TypeLayoutReflection* slangTypeLayout;
+    spDestroyCompileRequest(slangPTXRequest);
 
-    // Once we have the shader blobs and reflection information, it is safe to destroy the compile request
-    // unless we want to use reflection, to for example workout how 'UniformState' and 'UniformEntryPointParams' are laid out
-    // at runtime. We don't do that here - as we hard code the structures. 
-    spDestroyCompileRequest(slangRequest);
-
-    // Define the uniform state structure that is *specific* to our shader defined in shader.slang
-    // That the layout of the structure can be determined through reflection, or can be inferred from
-    // the original slang source. Look at the documentation in docs/cpu-target.md which describes
-    // how different resources map.
-    // The order of the resources is in the order that they are defined in the source. 
     struct UniformState
     {
         CPPPrelude::RWStructuredBuffer<float> ioBuffer;
     };
 
-    // the uniformState will be passed as a pointer to the CPU code 
     UniformState uniformState;
 
     // The contents of the buffer are modified, so we'll copy it
-    const float startBufferContents[] = { 2.0f, -10.0f, -3.0f, 5.0f };
+    const float startBufferContents[] = { 3.0f, -7.0f, -4.0f, 9.0f };
     float bufferContents[SLANG_COUNT_OF(startBufferContents)];
     memcpy(bufferContents, startBufferContents, sizeof(startBufferContents));
 
-    // Set up the ioBuffer such that it uses bufferContents. It is important to set the .count
-    // such that bounds checking can be performed in the kernel.  
     uniformState.ioBuffer.data = bufferContents;
     uniformState.ioBuffer.count = SLANG_COUNT_OF(bufferContents);
 
-    // In shader.slang, then entry point is attributed with `[numthreads(4, 1, 1)]` meaning each group
-    // consists of 4 'thread' in x. Our input buffer is 4 wide, and we index the input array via `SV_DispatchThreadID`
-    // so we only need to run a single group to execute over all of the 4 elements here.
-    // The group range from { 0, 0, 0 } -> { 1, 1, 1 } means it will execute over the single group { 0, 0, 0 }.
-
     const CPPPrelude::uint3 startGroupID = { 0, 0, 0};
     const CPPPrelude::uint3 endGroupID = { 1, 1, 1 };
-
-    CPPPrelude::ComputeVaryingInput varyingInput;
-    varyingInput.startGroupID = startGroupID;
-    varyingInput.endGroupID = endGroupID;
 
     gfx::createCUDARenderer(gRenderer.writeRef());
     
@@ -217,16 +171,6 @@ static SlangResult _innerMain(int argc, char** argv)
         if(SLANG_FAILED(res)) return res;
     }
 
-    int constantBufferSize = 4 * sizeof(float);
-    gfx::BufferResource::Desc constantBufferDesc;
-    constantBufferDesc.init(constantBufferSize);
-    constantBufferDesc.setDefaults(gfx::Resource::Usage::ConstantBuffer);
-    constantBufferDesc.cpuAccessFlags = gfx::Resource::AccessFlag::Write;
-    gConstantBuffer = gRenderer->createBufferResource(
-        gfx::Resource::Usage::ConstantBuffer,
-        constantBufferDesc);
-    if(!gConstantBuffer) return SLANG_FAIL;
-
     gfx::ShaderProgram::KernelDesc kernelDescs[] =
     {
         { gfx::StageType::Compute, computeCode, computeCodeEnd },
@@ -240,12 +184,32 @@ static SlangResult _innerMain(int argc, char** argv)
 
     gProgram = gRenderer->createProgram(programDesc);
 
-    auto shaderObjectLayout = gRenderer->createShaderObjectLayout(slangTypeLayout);
+    // Actually build the shader object using the layout specified by the module
+    auto programLayout = linkedProgram->getLayout();
+    if (!programLayout) return SLANG_FAIL;
+    auto shaderObjectLayout = gRenderer->createRootShaderObjectLayout(programLayout);
     if (!shaderObjectLayout) return SLANG_FAIL;
+    auto shaderObject = gRenderer->createRootShaderObject(shaderObjectLayout);
+    if (!shaderObject) return SLANG_FAIL;
 
-    auto shaderObject = gRenderer->createShaderObject(shaderObjectLayout);
-    auto shaderObjectResult = gRenderer->bindRootShaderObject(gfx::PipelineType::Compute, shaderObject);
-    if (!shaderObjectResult) return SLANG_FAIL;
+    int bufferSize = 4 * sizeof(float);
+    gfx::BufferResource::Desc bufferDesc;
+    bufferDesc.init(bufferSize);
+    bufferDesc.setDefaults(gfx::Resource::Usage::UnorderedAccess);
+    bufferDesc.cpuAccessFlags = gfx::Resource::AccessFlag::Read | gfx::Resource::AccessFlag::Write;
+    // bufferContents holds the output
+    gBuffer = gRenderer->createBufferResource(
+        gfx::Resource::Usage::UnorderedAccess,
+        bufferDesc,
+        bufferContents);
+    if (!gBuffer) return SLANG_FAIL;
+
+    gfx::ResourceView::Desc bufferViewDesc;
+    bufferViewDesc.type = gfx::ResourceView::Type::UnorderedAccess;
+    auto bufferView = gRenderer->createBufferView(gBuffer, bufferViewDesc);
+
+    gfx::ShaderOffset offset;
+    shaderObject->setResource(offset, bufferView);
 
     gfx::ComputePipelineStateDesc desc;
     desc.program = gProgram;
@@ -255,10 +219,11 @@ static SlangResult _innerMain(int argc, char** argv)
 
     gPipelineState = pipelineState;
 
+    gRenderer->bindRootShaderObject(gfx::PipelineType::Compute, shaderObject);
+
     gRenderer->setPipelineState(gfx::PipelineType::Compute, gPipelineState);
     gRenderer->dispatchCompute(4, 1, 1);
-
-    // bufferContents holds the output
+    gRenderer->waitForGpu();
 
     // Print out the values before the computation
     printf("Before:\n");
