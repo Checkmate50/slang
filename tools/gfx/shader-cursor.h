@@ -1,7 +1,7 @@
 #pragma once
 
 #include "tools/gfx/render.h"
-#include "core/slang-basic.h"
+#include "../../source/core/slang-basic.h"
 
 namespace gfx
 {

@@ -40,6 +40,7 @@ using namespace Slang;
 #define SLANG_PRELUDE_NAMESPACE CPPPrelude
 #include "../../prelude/slang-cpp-types.h"
 #include "gfx/render.h"
+#include "gfx/shader-cursor.h"
 #include "gfx/cuda/render-cuda.h"
 #include "tools/graphics-app-framework/window.h"
 
@@ -208,8 +209,8 @@ static SlangResult _innerMain(int argc, char** argv)
     bufferViewDesc.type = gfx::ResourceView::Type::UnorderedAccess;
     auto bufferView = gRenderer->createBufferView(gBuffer, bufferViewDesc);
 
-    gfx::ShaderOffset offset;
-    shaderObject->setResource(offset, bufferView);
+    gfx::ShaderCursor cursor = gfx::ShaderCursor(shaderObject);
+    cursor.setResource(bufferView);
 
     gfx::ComputePipelineStateDesc desc;
     desc.program = gProgram;
