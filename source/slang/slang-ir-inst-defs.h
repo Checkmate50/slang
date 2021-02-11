@@ -51,6 +51,8 @@ INST(Nop, nop, 0, 0)
 
     INST(TaggedUnionType, TaggedUnion, 0, 0)
 
+    INST(ConjunctionType, Conjunction, 0, 0)
+
     /* BindExistentialsTypeBase */
 
         // A `BindExistentials<B, T0,w0, T1,w1, ...>` represents
@@ -578,15 +580,16 @@ INST(HighLevelDeclDecoration,               highLevelDecl,          1, 0)
     /* LinkageDecoration */
         INST(ImportDecoration, import, 1, 0)
         INST(ExportDecoration, export, 1, 0)
+    INST_RANGE(LinkageDecoration, ImportDecoration, ExportDecoration)
 
     /* Decorations for RTTI objects */
-        INST(RTTITypeSizeDecoration, RTTI_typeSize, 1, 0)
+    INST(RTTITypeSizeDecoration, RTTI_typeSize, 1, 0)
     INST(AnyValueSizeDecoration, AnyValueSize, 1, 0)
     INST(SequentialIDDecoration, SequentialIDDecoration, 1, 0)
 
     INST(TypeConstraintDecoration, TypeConstraintDecoration, 1, 0)
-    INST_RANGE(LinkageDecoration, ImportDecoration, ExportDecoration)
 
+    
     INST(BuiltinDecoration, BuiltinDecoration, 0, 0)
 
         /// The decorated instruction requires NVAPI to be included via prelude when compiling for D3D.

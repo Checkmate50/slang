@@ -5,6 +5,7 @@
 #include "../core/slang-shared-library.h"
 
 #include "../core/slang-downstream-compiler.h"
+#include "../core/slang-archive-file-system.h"
 
 #include "../../slang-com-ptr.h"
 
@@ -317,9 +318,6 @@ namespace Slang
             /// Get one of the global shader parametesr linked into this component type.
         virtual ShaderParamInfo getShaderParam(Index index) = 0;
 
-            /// Get the number of (unspecialized) specialization parameters for the component type.
-        virtual Index getSpecializationParamCount() = 0;
-
             /// Get the specialization parameter at `index`.
         virtual SpecializationParam const& getSpecializationParam(Index index) = 0;
 
@@ -510,7 +508,7 @@ namespace Slang
         Index getShaderParamCount() SLANG_OVERRIDE;
         ShaderParamInfo getShaderParam(Index index) SLANG_OVERRIDE;
 
-        Index getSpecializationParamCount() SLANG_OVERRIDE;
+        SLANG_NO_THROW Index SLANG_MCALL getSpecializationParamCount() SLANG_OVERRIDE;
         SpecializationParam const& getSpecializationParam(Index index) SLANG_OVERRIDE;
 
         Index getRequirementCount() SLANG_OVERRIDE;
@@ -597,7 +595,7 @@ namespace Slang
         Index getShaderParamCount() SLANG_OVERRIDE { return m_base->getShaderParamCount(); }
         ShaderParamInfo getShaderParam(Index index) SLANG_OVERRIDE { return m_base->getShaderParam(index); }
 
-        Index getSpecializationParamCount() SLANG_OVERRIDE { return 0; }
+        SLANG_NO_THROW Index SLANG_MCALL getSpecializationParamCount() SLANG_OVERRIDE { return 0; }
         SpecializationParam const& getSpecializationParam(Index index) SLANG_OVERRIDE { SLANG_UNUSED(index); static SpecializationParam dummy; return dummy; }
 
         Index getRequirementCount() SLANG_OVERRIDE;
@@ -758,7 +756,7 @@ namespace Slang
             String      mangledName);
 
             /// Get the number of existential type parameters for the entry point.
-        Index getSpecializationParamCount() SLANG_OVERRIDE;
+        SLANG_NO_THROW Index SLANG_MCALL getSpecializationParamCount() SLANG_OVERRIDE;
 
             /// Get the existential type parameter at `index`.
         SpecializationParam const& getSpecializationParam(Index index) SLANG_OVERRIDE;
@@ -968,7 +966,7 @@ namespace Slang
         Index getShaderParamCount() SLANG_OVERRIDE { return m_shaderParams.getCount(); }
         ShaderParamInfo getShaderParam(Index index) SLANG_OVERRIDE { return m_shaderParams[index]; }
 
-        Index getSpecializationParamCount() SLANG_OVERRIDE { return m_specializationParams.getCount(); }
+        SLANG_NO_THROW Index SLANG_MCALL getSpecializationParamCount() SLANG_OVERRIDE { return m_specializationParams.getCount(); }
         SpecializationParam const& getSpecializationParam(Index index) SLANG_OVERRIDE { return m_specializationParams[index]; }
 
         Index getRequirementCount() SLANG_OVERRIDE;
@@ -1919,6 +1917,7 @@ namespace Slang
         virtual SLANG_NO_THROW SlangReflection* SLANG_MCALL getReflection() SLANG_OVERRIDE;
         virtual SLANG_NO_THROW void SLANG_MCALL setCommandLineCompilerMode() SLANG_OVERRIDE;
         virtual SLANG_NO_THROW SlangResult SLANG_MCALL addTargetCapability(SlangInt targetIndex, SlangCapabilityID capability) SLANG_OVERRIDE;
+        virtual SLANG_NO_THROW SlangResult SLANG_MCALL getProgramWithEntryPoints(slang::IComponentType** outProgram) SLANG_OVERRIDE;
 
 
         EndToEndCompileRequest(
@@ -2178,7 +2177,7 @@ namespace Slang
 
         SLANG_NO_THROW SlangResult SLANG_MCALL compileStdLib() override;
         SLANG_NO_THROW SlangResult SLANG_MCALL loadStdLib(const void* stdLib, size_t stdLibSizeInBytes) override;
-        SLANG_NO_THROW SlangResult SLANG_MCALL saveStdLib(ISlangBlob** outBlob) override;
+        SLANG_NO_THROW SlangResult SLANG_MCALL saveStdLib(SlangArchiveType archiveType, ISlangBlob** outBlob) override;
 
         SLANG_NO_THROW SlangCapabilityID SLANG_MCALL findCapability(char const* name) override;
 

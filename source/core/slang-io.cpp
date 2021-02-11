@@ -3,6 +3,8 @@
 
 #include "../../slang-com-helper.h"
 
+#include "slang-string-util.h"
+
 #ifndef __STDC__
 #   define __STDC__ 1
 #endif
@@ -173,9 +175,9 @@ namespace Slang
         return sb.ProduceString();
     }
 
-    /* static */ Index Path::findLastSeparatorIndex(String const& path)
+    /* static */ Index Path::findLastSeparatorIndex(UnownedStringSlice const& path)
     {
-        const char* chars = path.getBuffer();
+        const char* chars = path.begin();
         for (Index i = path.getLength() - 1; i >= 0; --i)
         {
             const char c = chars[i];
@@ -187,7 +189,7 @@ namespace Slang
         return -1;
     }
 
-    /* static */Index Path::findExtIndex(String const& path)
+    /* static */Index Path::findExtIndex(UnownedStringSlice const& path)
     {
         const Index sepIndex = findLastSeparatorIndex(path);
 
@@ -236,13 +238,22 @@ namespace Slang
             return path;
     }
 
-    String Path::getPathExt(const String& path)
+    UnownedStringSlice Path::getPathExt(const UnownedStringSlice& path)
     {
         const Index dotPos = findExtIndex(path);
         if (dotPos >= 0)
+        {
             return path.subString(dotPos + 1, path.getLength() - dotPos - 1);
+        }
         else
-            return "";
+        {
+            // Note that the caller can identify if path has no extension or just a .
+            // as if it's a dot a zero length slice is returned in path
+            // If it's not then a default slice is returned (which doesn't point into path).
+            //
+            // Granted this is a little obscure and perhaps should be improved.
+            return UnownedStringSlice();
+        }
     }
 
     String Path::getParentDirectory(const String& path)
@@ -400,52 +411,56 @@ namespace Slang
         return false;
     }
 
-    /* static */String Path::simplify(const UnownedStringSlice& path)
+    /* static */void Path::simplify(List<UnownedStringSlice>& ioSplit)
     {
-        List<UnownedStringSlice> splitPath;
-        split(path, splitPath);
-
         // Strictly speaking we could do something about case on platforms like window, but here we won't worry about that
-        for (Index i = 0; i < splitPath.getCount(); i++)
+        for (Index i = 0; i < ioSplit.getCount(); i++)
         {
-            const UnownedStringSlice& cur = splitPath[i];
-            if (cur == "." && splitPath.getCount() > 1)
+            const UnownedStringSlice& cur = ioSplit[i];
+            if (cur == "." && ioSplit.getCount() > 1)
             {
                 // Just remove it 
-                splitPath.removeAt(i);
+                ioSplit.removeAt(i);
                 i--;
             }
             else if (cur == ".." && i > 0)
             {
                 // Can we remove this and the one before ?
-                UnownedStringSlice& before = splitPath[i - 1];
+                UnownedStringSlice& before = ioSplit[i - 1];
                 if (before == ".." || (i == 1 && isDriveSpecification(before)))
                 {
-                    // Can't do it
+                    // Can't do it, but we allow relative, so just leave for now
                     continue;
                 }
-                splitPath.removeRange(i - 1, 2);
+                ioSplit.removeRange(i - 1, 2);
                 i -= 2;
             }
         }
+    }
 
-        // If its empty it must be .
-        if (splitPath.getCount() == 0)
+    /* static */void Path::join(const UnownedStringSlice* slices, Index count, StringBuilder& out)
+    {
+        out.Clear();
+
+        if (count == 0)
         {
-            splitPath.add(UnownedStringSlice::fromLiteral("."));
+            out << ".";
+            return;
         }
-   
+
+        StringUtil::join(slices, count, kPathDelimiter, out);
+    }
+
+
+    /* static */String Path::simplify(const UnownedStringSlice& path)
+    {
+        List<UnownedStringSlice> splitPath;
+        split(path, splitPath);
+        simplify(splitPath);
+
         // Reconstruct the string
         StringBuilder builder;
-        for (Index i = 0; i < splitPath.getCount(); i++)
-        {
-            if (i > 0)
-            {
-                builder.Append(kPathDelimiter);
-            }
-            builder.Append(splitPath[i]);
-        }
-
+        join(splitPath.getBuffer(), splitPath.getCount(), builder);
         return builder.ToString();
     }
 

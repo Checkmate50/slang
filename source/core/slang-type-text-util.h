@@ -20,6 +20,8 @@ struct TypeTextUtil
 
         /// As human readable text
     static UnownedStringSlice getPassThroughAsHumanText(SlangPassThrough type);
+        /// Gets pass through from human text (as from getPassThroughAsHumanText)
+    static SlangResult findPassThroughFromHumanText(const UnownedStringSlice& text, SlangPassThrough& outPassThrough);
 
         /// Given a source language name returns a source language. Name here is distinct from extension
     static SlangSourceLanguage findSourceLanguage(const UnownedStringSlice& text);
@@ -41,6 +43,9 @@ struct TypeTextUtil
 
         /// Given a target returns the associated name.
     static UnownedStringSlice getCompileTargetName(SlangCompileTarget target);
+
+        /// Returns SLANG_ARCHIVE_TYPE_UNKNOWN if a match is not found
+    static SlangArchiveType findArchiveType(const UnownedStringSlice& slice);
 };
 
 }
