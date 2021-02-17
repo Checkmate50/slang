@@ -40,7 +40,7 @@ using namespace Slang;
 #define SLANG_PRELUDE_NAMESPACE CPPPrelude
 #include "../../prelude/slang-cpp-types.h"
 #include "gfx/render.h"
-#include "gfx/shader-cursor.h"
+#include "gfx-util/shader-cursor.h"
 #include "gfx/cuda/render-cuda.h"
 #include "tools/graphics-app-framework/window.h"
 
@@ -49,11 +49,11 @@ int gWindowHeight = 768;
 
 ComPtr<gfx::IRenderer>      gRenderer;
 gfx::Window*                gWindow;
-RefPtr<gfx::BufferResource> gBuffer;
+ComPtr<gfx::IBufferResource> gBuffer;
 
-RefPtr<gfx::ShaderProgram>  gProgram;
+ComPtr<gfx::IShaderProgram>  gProgram;
 
-RefPtr<gfx::PipelineState>  gPipelineState;
+ComPtr<gfx::IPipelineState>  gPipelineState;
 
 struct UniformState;
 
@@ -156,8 +156,6 @@ static SlangResult _innerMain(int argc, char** argv)
     const CPPPrelude::uint3 startGroupID = { 0, 0, 0};
     const CPPPrelude::uint3 endGroupID = { 1, 1, 1 };
 
-    gfx::createCUDARenderer(gRenderer.writeRef());
-    
     gfx::WindowDesc windowDesc;
     windowDesc.title = "CUDA Hello, World!";
     windowDesc.width = gWindowWidth;
@@ -167,62 +165,49 @@ static SlangResult _innerMain(int argc, char** argv)
     gfx::IRenderer::Desc rendererDesc;
     rendererDesc.width = gWindowWidth;
     rendererDesc.height = gWindowHeight;
-    {
-        Result res = gRenderer->initialize(rendererDesc, getPlatformWindowHandle(gWindow));
-        if(SLANG_FAILED(res)) return res;
-    }
+    gfx::Result res = gfx::createCUDARenderer(&rendererDesc,
+        getPlatformWindowHandle(gWindow), gRenderer.writeRef());
+    if(SLANG_FAILED(res)) return res;
 
-    gfx::ShaderProgram::KernelDesc kernelDescs[] =
-    {
-        { gfx::StageType::Compute, computeCode, computeCodeEnd },
-    };
-
-    kernelDescs[0].entryPointName = "computeMain";
-    gfx::ShaderProgram::Desc programDesc;
+    gfx::IShaderProgram::Desc programDesc = {};
     programDesc.pipelineType = gfx::PipelineType::Compute;
-    programDesc.kernels = &kernelDescs[0];
-    programDesc.kernelCount = 1;
+    programDesc.slangProgram = linkedProgram;
 
     gProgram = gRenderer->createProgram(programDesc);
 
-    // Actually build the shader object using the layout specified by the module
-    auto programLayout = linkedProgram->getLayout();
-    if (!programLayout) return SLANG_FAIL;
-    auto shaderObjectLayout = gRenderer->createRootShaderObjectLayout(programLayout);
-    if (!shaderObjectLayout) return SLANG_FAIL;
-    auto shaderObject = gRenderer->createRootShaderObject(shaderObjectLayout);
-    if (!shaderObject) return SLANG_FAIL;
+    ComPtr<gfx::IShaderObject> rootObject;
+    gRenderer->createRootShaderObject(gProgram, rootObject.writeRef());
+    if (!rootObject) return SLANG_FAIL;
 
     int bufferSize = 4 * sizeof(float);
-    gfx::BufferResource::Desc bufferDesc;
+    gfx::IBufferResource::Desc bufferDesc;
     bufferDesc.init(bufferSize);
-    bufferDesc.setDefaults(gfx::Resource::Usage::UnorderedAccess);
-    bufferDesc.cpuAccessFlags = gfx::Resource::AccessFlag::Read | gfx::Resource::AccessFlag::Write;
+    bufferDesc.setDefaults(gfx::IResource::Usage::VertexBuffer);
+    bufferDesc.cpuAccessFlags = gfx::IResource::AccessFlag::Read | gfx::IResource::AccessFlag::Write;
     // bufferContents holds the output
     gBuffer = gRenderer->createBufferResource(
-        gfx::Resource::Usage::UnorderedAccess,
+        gfx::IResource::Usage::UnorderedAccess,
         bufferDesc,
         bufferContents);
     if (!gBuffer) return SLANG_FAIL;
 
-    gfx::ResourceView::Desc bufferViewDesc;
-    bufferViewDesc.type = gfx::ResourceView::Type::UnorderedAccess;
+    gfx::IResourceView::Desc bufferViewDesc;
+    bufferViewDesc.type = gfx::IResourceView::Type::UnorderedAccess;
     auto bufferView = gRenderer->createBufferView(gBuffer, bufferViewDesc);
 
-    gfx::ShaderCursor cursor = gfx::ShaderCursor(shaderObject);
+    gfx::ShaderCursor cursor = gfx::ShaderCursor(rootObject);
     cursor.setResource(bufferView);
 
     gfx::ComputePipelineStateDesc desc;
     desc.program = gProgram;
-    desc.rootShaderObjectLayout = shaderObjectLayout;
     auto pipelineState = gRenderer->createComputePipelineState(desc);
     if(!pipelineState) return SLANG_FAIL;
 
     gPipelineState = pipelineState;
 
-    gRenderer->bindRootShaderObject(gfx::PipelineType::Compute, shaderObject);
+    gRenderer->bindRootShaderObject(gfx::PipelineType::Compute, rootObject);
 
-    gRenderer->setPipelineState(gfx::PipelineType::Compute, gPipelineState);
+    gRenderer->setPipelineState(pipelineState);
     gRenderer->dispatchCompute(4, 1, 1);
     gRenderer->waitForGpu();
 
