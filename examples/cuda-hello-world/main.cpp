@@ -39,9 +39,7 @@ using namespace Slang;
 // laid out in the manner that the generated slang code expects. 
 #define SLANG_PRELUDE_NAMESPACE CPPPrelude
 #include "../../prelude/slang-cpp-types.h"
-#include "gfx/render.h"
 #include "gfx-util/shader-cursor.h"
-#include "gfx/cuda/render-cuda.h"
 #include "tools/graphics-app-framework/window.h"
 
 int gWindowWidth = 1024;
@@ -165,9 +163,8 @@ static SlangResult _innerMain(int argc, char** argv)
     gfx::IRenderer::Desc rendererDesc;
     rendererDesc.width = gWindowWidth;
     rendererDesc.height = gWindowHeight;
-    gfx::Result res = gfx::createCUDARenderer(&rendererDesc,
-        getPlatformWindowHandle(gWindow), gRenderer.writeRef());
-    if(SLANG_FAILED(res)) return res;
+    rendererDesc.rendererType = gfx::RendererType::CUDA;
+    SLANG_RETURN_ON_FAIL(gfxCreateRenderer(&rendererDesc, gWindow, gRenderer.writeRef()));
 
     gfx::IShaderProgram::Desc programDesc = {};
     programDesc.pipelineType = gfx::PipelineType::Compute;
