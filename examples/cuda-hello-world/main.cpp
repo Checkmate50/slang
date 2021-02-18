@@ -39,18 +39,16 @@ using namespace Slang;
 // laid out in the manner that the generated slang code expects. 
 #define SLANG_PRELUDE_NAMESPACE CPPPrelude
 #include "../../prelude/slang-cpp-types.h"
-#include "gfx-util/shader-cursor.h"
-#include "tools/graphics-app-framework/window.h"
 
-int gWindowWidth = 1024;
-int gWindowHeight = 768;
+// Slang rendering is included here, along with information about the shader object
+// in the form of shader-cursor.h
+#include "gfx/render.h"
+#include "gfx-util/shader-cursor.h"
+#include "source/core/slang-basic.h"
 
 ComPtr<gfx::IRenderer>      gRenderer;
-gfx::Window*                gWindow;
 ComPtr<gfx::IBufferResource> gBuffer;
-
 ComPtr<gfx::IShaderProgram>  gProgram;
-
 ComPtr<gfx::IPipelineState>  gPipelineState;
 
 struct UniformState;
@@ -154,21 +152,13 @@ static SlangResult _innerMain(int argc, char** argv)
     const CPPPrelude::uint3 startGroupID = { 0, 0, 0};
     const CPPPrelude::uint3 endGroupID = { 1, 1, 1 };
 
-    gfx::WindowDesc windowDesc;
-    windowDesc.title = "CUDA Hello, World!";
-    windowDesc.width = gWindowWidth;
-    windowDesc.height = gWindowHeight;
-    gWindow = gfx::createWindow(windowDesc);
-
     gfx::IRenderer::Desc rendererDesc;
-    rendererDesc.width = gWindowWidth;
-    rendererDesc.height = gWindowHeight;
     rendererDesc.rendererType = gfx::RendererType::CUDA;
-    SLANG_RETURN_ON_FAIL(gfxCreateRenderer(&rendererDesc, gWindow, gRenderer.writeRef()));
+    SLANG_RETURN_ON_FAIL(gfxCreateRenderer(&rendererDesc, nullptr, gRenderer.writeRef()));
 
     gfx::IShaderProgram::Desc programDesc = {};
     programDesc.pipelineType = gfx::PipelineType::Compute;
-    programDesc.slangProgram = linkedProgram;
+    programDesc.slangProgram = linkedProgram.get();
 
     gProgram = gRenderer->createProgram(programDesc);
 

@@ -53,7 +53,7 @@ will load NVRTC 10.2 assuming that version of the dll can be found via the norma
 On Windows if NVRTC is not loadable directly as 'nvrtc' Slang will attempt to search for the newest version of NVRTC on your system. The places searched are...
 
 * The instance directory (where the slang.dll and/or program exe is)
-* The CUDA_PATH enivonment variable (if set)
+* The CUDA_PATH environment variable (if set)
 * Directories in PATH that look like a CUDA installation.
 
 If a candidate is found via an earlier mechanism, subsequent searches are not performed. If multiple candidates are found, Slang tries the newest version first.
