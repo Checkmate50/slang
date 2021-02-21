@@ -753,6 +753,8 @@ tool "gfx"
 
     includedirs { ".", "external", "source" }
 
+    files {"slang-gfx.h"}
+
     -- Will compile across targets
     addSourceDir "tools/gfx/nvapi"
 
