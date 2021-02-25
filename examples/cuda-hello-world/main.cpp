@@ -42,7 +42,6 @@ using namespace Slang;
 
 // Slang rendering is included here, along with information about the shader object
 // in the form of shader-cursor.h
-#include "gfx/render.h"
 #include "gfx-util/shader-cursor.h"
 #include "source/core/slang-basic.h"
 
@@ -68,6 +67,17 @@ static SlangResult _innerMain(int argc, char** argv)
     int translationUnitIndex = spAddTranslationUnit(slangPTXRequest, SLANG_SOURCE_LANGUAGE_SLANG, nullptr);
     spAddTranslationUnitSourceFile(slangPTXRequest, translationUnitIndex, "shader.slang");
     const SlangResult compilePTXRes = spCompile(slangPTXRequest);
+
+    ComPtr<slang::IModule> slangPTXModule;
+    spCompileRequest_getModule(slangPTXRequest, translationUnitIndex, slangPTXModule.writeRef());
+
+    ComPtr<slang::IEntryPoint> PTXEntryPoint;
+    slangPTXModule->findEntryPointByName("computeMain", PTXEntryPoint.writeRef());
+    if (!PTXEntryPoint) return SLANG_FAIL;
+
+    ComPtr<slang::IComponentType> linkedPTXProgram;
+    PTXEntryPoint->link(linkedPTXProgram.writeRef());
+    if (!linkedPTXProgram) return SLANG_FAIL;
 
     if (auto diagnostics = spGetDiagnosticOutput(slangPTXRequest))
     {
@@ -113,18 +123,6 @@ static SlangResult _innerMain(int argc, char** argv)
         return compileCUDARes;
     }
 
-    // Here we use the actual raw CUDA code to get the module information
-    ComPtr<slang::IModule> slangModule;
-    spCompileRequest_getModule(slangCUDARequest, translationCUDAUnitIndex, slangModule.writeRef());
-
-    ComPtr<slang::IEntryPoint> entryPoint;
-    slangModule->findEntryPointByName("computeMain", entryPoint.writeRef());
-    if (!entryPoint) return SLANG_FAIL;
-
-    ComPtr<slang::IComponentType> linkedProgram;
-    entryPoint->link(linkedProgram.writeRef());
-    if (!linkedProgram) return SLANG_FAIL;
-
     ISlangBlob* computeShaderBlob = nullptr;
     spGetTargetCodeBlob(slangPTXRequest, 0, &computeShaderBlob);
     if (!computeShaderBlob) return SLANG_FAIL;
@@ -158,9 +156,10 @@ static SlangResult _innerMain(int argc, char** argv)
 
     gfx::IShaderProgram::Desc programDesc = {};
     programDesc.pipelineType = gfx::PipelineType::Compute;
-    programDesc.slangProgram = linkedProgram.get();
+    programDesc.slangProgram = linkedPTXProgram.get();
 
     gProgram = gRenderer->createProgram(programDesc);
+    if (!gProgram) return SLANG_FAIL;
 
     ComPtr<gfx::IShaderObject> rootObject;
     gRenderer->createRootShaderObject(gProgram, rootObject.writeRef());
