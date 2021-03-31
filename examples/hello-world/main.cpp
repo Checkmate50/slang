@@ -34,9 +34,10 @@
 //
 #include "slang-gfx.h"
 #include "gfx-util/shader-cursor.h"
-#include "tools/graphics-app-framework/window.h"
+#include "tools/platform/window.h"
 #include "slang-com-ptr.h"
 #include "source/core/slang-basic.h"
+#include "examples/example-base/example-base.h"
 
 using namespace gfx;
 using namespace Slang;
@@ -62,7 +63,7 @@ static const Vertex kVertexData[kVertexCount] =
 // The example application will be implemented as a `struct`, so that
 // we can scope the resources it allocates without using global variables.
 //
-struct HelloWorld
+struct HelloWorld : public WindowedAppBase
 {
 
 // Many Slang API functions return detailed diagnostic information
@@ -76,7 +77,7 @@ void diagnoseIfNeeded(slang::IBlob* diagnosticsBlob)
 {
     if( diagnosticsBlob != nullptr )
     {
-        reportError("%s", (const char*) diagnosticsBlob->getBufferPointer());
+        printf("%s", (const char*) diagnosticsBlob->getBufferPointer());
     }
 }
 
@@ -87,7 +88,7 @@ void diagnoseIfNeeded(slang::IBlob* diagnosticsBlob)
 // about the program, which is what a `slang::ProgramLayout` provides.
 //
 gfx::Result loadShaderProgram(
-    gfx::IRenderer*         renderer,
+    gfx::IDevice*         device,
     gfx::IShaderProgram**   outProgram)
 {
     // We need to obatin a compilation session (`slang::ISession`) that will provide
@@ -96,7 +97,7 @@ gfx::Result loadShaderProgram(
     // Our example application uses the `gfx` graphics API abstraction layer, which already
     // creates a Slang compilation session for us, so we just grab and use it here.
     ComPtr<slang::ISession> slangSession;
-    slangSession = renderer->getSlangSession();
+    slangSession = device->getSlangSession();
 
     // We can now start loading code into the slang session.
     //
@@ -182,7 +183,7 @@ gfx::Result loadShaderProgram(
     gfx::IShaderProgram::Desc programDesc = {};
     programDesc.pipelineType = gfx::PipelineType::Graphics;
     programDesc.slangProgram = linkedProgram;
-    SLANG_RETURN_ON_FAIL(renderer->createProgram(programDesc, outProgram));
+    SLANG_RETURN_ON_FAIL(device->createProgram(programDesc, outProgram));
 
     return SLANG_OK;
 }
@@ -197,12 +198,6 @@ gfx::Result loadShaderProgram(
 // we have just defined.
 //
 
-// We will hard-code the size of our rendering window.
-//
-int gWindowWidth = 1024;
-int gWindowHeight = 768;
-const uint32_t kSwapchainImageCount = 2;
-
 // We will define global variables for the various platform and
 // graphics API objects that our application needs:
 //
@@ -210,14 +205,8 @@ const uint32_t kSwapchainImageCount = 2;
 // of them come from the utility library we are using to simplify
 // building an example program.
 //
-gfx::ApplicationContext*    gAppContext;
-gfx::Window*                gWindow;
-Slang::ComPtr<gfx::IRenderer>       gRenderer;
-
 ComPtr<gfx::IPipelineState> gPipelineState;
 ComPtr<gfx::IShaderObject> gRootObject;
-ComPtr<gfx::ISwapchain> gSwapchain;
-List<ComPtr<gfx::IFramebuffer>> gFramebuffers;
 ComPtr<gfx::IBufferResource> gVertexBuffer;
 
 // Now that we've covered the function that actually loads and
@@ -228,25 +217,9 @@ Slang::Result initialize()
 {
     // Create a window for our application to render into.
     //
-    WindowDesc windowDesc;
-    windowDesc.title = "Hello, World!";
-    windowDesc.width = gWindowWidth;
-    windowDesc.height = gWindowHeight;
-    gWindow = createWindow(windowDesc);
+    initializeBase("hello-world", 1024, 768);
 
-    // Initialize the rendering layer.
-    //
-    // Note: for now we are hard-coding logic to use the
-    // Direct3D11 back-end for the graphics API abstraction.
-    // A future version of this example may support multiple
-    // platforms/APIs.
-    //
-    IRenderer::Desc rendererDesc = {};
-    rendererDesc.rendererType = gfx::RendererType::DirectX11;
-    gfx::Result res = gfxCreateRenderer(&rendererDesc, gRenderer.writeRef());
-    if(SLANG_FAILED(res)) return res;
-
-    // Now we will create objects needed to configur the "input assembler"
+    // We will create objects needed to configur the "input assembler"
     // (IA) stage of the D3D pipeline.
     //
     // First, we create an input layout:
@@ -255,7 +228,7 @@ Slang::Result initialize()
         { "POSITION", 0, Format::RGB_Float32, offsetof(Vertex, position) },
         { "COLOR",    0, Format::RGB_Float32, offsetof(Vertex, color) },
     };
-    auto inputLayout = gRenderer->createInputLayout(
+    auto inputLayout = gDevice->createInputLayout(
         &inputElements[0],
         2);
     if(!inputLayout) return SLANG_FAIL;
@@ -266,7 +239,7 @@ Slang::Result initialize()
     IBufferResource::Desc vertexBufferDesc;
     vertexBufferDesc.init(kVertexCount * sizeof(Vertex));
     vertexBufferDesc.setDefaults(IResource::Usage::VertexBuffer);
-    gVertexBuffer = gRenderer->createBufferResource(
+    gVertexBuffer = gDevice->createBufferResource(
         IResource::Usage::VertexBuffer,
         vertexBufferDesc,
         &kVertexData[0]);
@@ -276,7 +249,7 @@ Slang::Result initialize()
     // the code from `shaders.slang` into the graphics API.
     //
     ComPtr<IShaderProgram> shaderProgram;
-    SLANG_RETURN_ON_FAIL(loadShaderProgram(gRenderer, shaderProgram.writeRef()));
+    SLANG_RETURN_ON_FAIL(loadShaderProgram(gDevice, shaderProgram.writeRef()));
 
     // In order to bind shader parameters to the pipeline, we need
     // to know how those parameters were assigned to locations/bindings/registers
@@ -307,68 +280,8 @@ Slang::Result initialize()
     // layout as being similar in spirit to a "root signature" or "pipeline layout."
     //
     ComPtr<IShaderObject> rootObject;
-    SLANG_RETURN_ON_FAIL(gRenderer->createRootShaderObject(shaderProgram, rootObject.writeRef()));
+    SLANG_RETURN_ON_FAIL(gDevice->createRootShaderObject(shaderProgram, rootObject.writeRef()));
     gRootObject = rootObject;
-
-    // Create swapchain and framebuffers.
-    gfx::ISwapchain::Desc swapchainDesc = {};
-    swapchainDesc.format = gfx::Format::RGBA_Unorm_UInt8;
-    swapchainDesc.width = gWindowWidth;
-    swapchainDesc.height = gWindowHeight;
-    swapchainDesc.imageCount = kSwapchainImageCount;
-    gSwapchain = gRenderer->createSwapchain(
-        swapchainDesc, gfx::WindowHandle::FromHwnd(getPlatformWindowHandle(gWindow)));
-
-    IFramebufferLayout::AttachmentLayout renderTargetLayout = {gSwapchain->getDesc().format, 1};
-    IFramebufferLayout::AttachmentLayout depthLayout = {gfx::Format::D_Float32, 1};
-    IFramebufferLayout::Desc framebufferLayoutDesc;
-    framebufferLayoutDesc.renderTargetCount = 1;
-    framebufferLayoutDesc.renderTargets = &renderTargetLayout;
-    framebufferLayoutDesc.depthStencil = &depthLayout;
-    ComPtr<IFramebufferLayout> framebufferLayout;
-    SLANG_RETURN_ON_FAIL(
-        gRenderer->createFramebufferLayout(framebufferLayoutDesc, framebufferLayout.writeRef()));
-
-    for (uint32_t i = 0; i < kSwapchainImageCount; i++)
-    {
-        gfx::ITextureResource::Desc depthBufferDesc;
-        depthBufferDesc.setDefaults(gfx::IResource::Usage::DepthWrite);
-        depthBufferDesc.init2D(
-            gfx::IResource::Type::Texture2D,
-            gfx::Format::D_Float32,
-            gSwapchain->getDesc().width,
-            gSwapchain->getDesc().height,
-            0);
-        
-        ComPtr<gfx::ITextureResource> depthBufferResource = gRenderer->createTextureResource(
-            gfx::IResource::Usage::DepthWrite, depthBufferDesc, nullptr);
-        ComPtr<gfx::ITextureResource> colorBuffer;
-        gSwapchain->getImage(i, colorBuffer.writeRef());
-
-        gfx::IResourceView::Desc colorBufferViewDesc;
-        memset(&colorBufferViewDesc, 0, sizeof(colorBufferViewDesc));
-        colorBufferViewDesc.format = gSwapchain->getDesc().format;
-        colorBufferViewDesc.renderTarget.shape = gfx::IResource::Type::Texture2D;
-        colorBufferViewDesc.type = gfx::IResourceView::Type::RenderTarget;
-        ComPtr<gfx::IResourceView> rtv =
-            gRenderer->createTextureView(colorBuffer.get(), colorBufferViewDesc);
-
-        gfx::IResourceView::Desc depthBufferViewDesc;
-        memset(&depthBufferViewDesc, 0, sizeof(depthBufferViewDesc));
-        depthBufferViewDesc.format = gfx::Format::D_Float32;
-        depthBufferViewDesc.renderTarget.shape = gfx::IResource::Type::Texture2D;
-        depthBufferViewDesc.type = gfx::IResourceView::Type::DepthStencil;
-        ComPtr<gfx::IResourceView> dsv =
-            gRenderer->createTextureView(depthBufferResource.get(), depthBufferViewDesc);
-
-        gfx::IFramebuffer::Desc framebufferDesc;
-        framebufferDesc.renderTargetCount = 1;
-        framebufferDesc.depthStencilView = dsv.get();
-        framebufferDesc.renderTargetViews = rtv.readRef();
-        framebufferDesc.layout = framebufferLayout;
-        ComPtr<gfx::IFramebuffer> frameBuffer = gRenderer->createFramebuffer(framebufferDesc);
-        gFramebuffers.add(frameBuffer);
-    }
 
     // Following the D3D12/Vulkan style of API, we need a pipeline state object
     // (PSO) to encapsulate the configuration of the overall graphics pipeline.
@@ -376,17 +289,12 @@ Slang::Result initialize()
     GraphicsPipelineStateDesc desc;
     desc.inputLayout = inputLayout;
     desc.program = shaderProgram;
-    desc.framebufferLayout = framebufferLayout;
-    auto pipelineState = gRenderer->createGraphicsPipelineState(desc);
+    desc.framebufferLayout = gFramebufferLayout;
+    auto pipelineState = gDevice->createGraphicsPipelineState(desc);
     if (!pipelineState)
         return SLANG_FAIL;
 
     gPipelineState = pipelineState;
-
-    // Once we've initialized all the graphics API objects,
-    // it is time to show our application window and start rendering.
-    //
-    showWindow(gWindow);
 
     return SLANG_OK;
 }
@@ -396,38 +304,23 @@ Slang::Result initialize()
 // nothing really Slang-specific here, so the commentary doesn't need
 // to be very detailed.
 //
-void renderFrame()
+virtual void renderFrame(int frameBufferIndex) override
 {
-    gRenderer->beginFrame();
-    uint32_t frameBufferIndex = gSwapchain->acquireNextImage();
-    gRenderer->setFramebuffer(gFramebuffers[frameBufferIndex]);
+    ComPtr<ICommandBuffer> commandBuffer = gTransientHeaps[frameBufferIndex]->createCommandBuffer();
+    auto renderEncoder = commandBuffer->encodeRenderCommands(gRenderPass, gFramebuffers[frameBufferIndex]);
 
     gfx::Viewport viewport = {};
     viewport.maxZ = 1.0f;
-    viewport.extentX = (float)gWindowWidth;
-    viewport.extentY = (float)gWindowHeight;
-    gRenderer->setViewportAndScissor(viewport);
-
-
-    // We start by clearing our framebuffer, which only has a color target.
-    //
-    static const float kClearColor[] = { 0.25, 0.25, 0.25, 1.0 };
-    gRenderer->setClearColor(kClearColor);
-    gRenderer->clearFrame();
+    viewport.extentX = (float)windowWidth;
+    viewport.extentY = (float)windowHeight;
+    renderEncoder->setViewportAndScissor(viewport);
 
     // We will update the model-view-projection matrix that is passed
     // into the shader code via the `Uniforms` buffer on a per-frame
     // basis, even though the data that is loaded does not change
     // per-frame (we always use an identity matrix).
     //
-    float identityMatrix[] =
-    {
-        1, 0, 0, 0,
-        0, 1, 0, 0,
-        0, 0, 1, 0,
-        0, 0, 0, 1,
-    };
-    gfxGetIdentityProjection(gfxGetProjectionStyle(gRenderer->getRendererType()), identityMatrix);
+    auto deviceInfo = gDevice->getDeviceInfo();
 
     //
     // We know that `gRootObject` is a root shader object created
@@ -463,7 +356,8 @@ void renderFrame()
     // Once we have formed a cursor that "points" at the
     // model-view projection matrix, we can set its data directly.
     //
-    rootCursor["Uniforms"]["modelViewProjection"].setData(identityMatrix, sizeof(identityMatrix));
+    rootCursor["Uniforms"]["modelViewProjection"].setData(
+        deviceInfo.identityProjectionMatrix, sizeof(float) * 16);
     //
     // Some readers might be concerned about the performance o
     // the above operations because of the use of strings. For
@@ -485,62 +379,29 @@ void renderFrame()
     // PSO, binding our root shader object to it (which references
     // the `Uniforms` buffer that will filled in above).
     //
-    gRenderer->setPipelineState(gPipelineState);
-    gRenderer->bindRootShaderObject(PipelineType::Graphics, gRootObject);
+    renderEncoder->setPipelineState(gPipelineState);
+    renderEncoder->bindRootShaderObject(gRootObject);
 
     // We also need to set up a few pieces of fixed-function pipeline
     // state that are not bound by the pipeline state above.
     //
-    gRenderer->setVertexBuffer(0, gVertexBuffer, sizeof(Vertex));
-    gRenderer->setPrimitiveTopology(PrimitiveTopology::TriangleList);
+    renderEncoder->setVertexBuffer(0, gVertexBuffer, sizeof(Vertex));
+    renderEncoder->setPrimitiveTopology(PrimitiveTopology::TriangleList);
 
     // Finally, we are ready to issue a draw call for a single triangle.
     //
-    gRenderer->draw(3);
+    renderEncoder->draw(3);
+    renderEncoder->endEncoding();
+    commandBuffer->close();
+    gQueue->executeCommandBuffer(commandBuffer);
 
     // With that, we are done drawing for one frame, and ready for the next.
     //
-    gRenderer->makeSwapchainImagePresentable(gSwapchain);
-
-    gRenderer->endFrame();
-
     gSwapchain->present();
-}
-
-void finalize()
-{
-    gRenderer->waitForGpu();
-    destroyWindow(gWindow);
 }
 
 };
 
-// This "inner" main function is used by the platform abstraction
-// layer to deal with differences in how an entry point needs
-// to be defined for different platforms.
-//
-void innerMain(ApplicationContext* context)
-{
-    // We construct an instance of our example application
-    // `struct` type, and then walk through the lifecyle
-    // of the application.
-
-    HelloWorld app;
-
-    if (SLANG_FAILED(app.initialize()))
-    {
-        return exitApplication(context, 1);
-    }
-
-    while(dispatchEvents(context))
-    {
-        app.renderFrame();
-    }
-
-    app.finalize();
-}
-
 // This macro instantiates an appropriate main function to
-// invoke the `innerMain` above.
-//
-GFX_UI_MAIN(innerMain)
+// run the application defined above.
+PLATFORM_UI_MAIN(innerMain<HelloWorld>)

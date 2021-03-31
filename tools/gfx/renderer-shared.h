@@ -10,10 +10,8 @@ namespace gfx
 struct GfxGUID
 {
     static const Slang::Guid IID_ISlangUnknown;
-    static const Slang::Guid IID_IDescriptorSetLayout;
-    static const Slang::Guid IID_IDescriptorSet;
     static const Slang::Guid IID_IShaderProgram;
-    static const Slang::Guid IID_IPipelineLayout;
+    static const Slang::Guid IID_ITransientResourceHeap;
     static const Slang::Guid IID_IPipelineState;
     static const Slang::Guid IID_IResourceView;
     static const Slang::Guid IID_IFramebuffer;
@@ -27,6 +25,13 @@ struct GfxGUID
     static const Slang::Guid IID_IRenderer;
     static const Slang::Guid IID_IShaderObjectLayout;
     static const Slang::Guid IID_IShaderObject;
+    static const Slang::Guid IID_IRenderPassLayout;
+    static const Slang::Guid IID_ICommandEncoder;
+    static const Slang::Guid IID_IRenderCommandEncoder;
+    static const Slang::Guid IID_IComputeCommandEncoder;
+    static const Slang::Guid IID_IResourceCommandEncoder;
+    static const Slang::Guid IID_ICommandBuffer;
+    static const Slang::Guid IID_ICommandQueue;
 };
 
 gfx::StageType translateStage(SlangStage slangStage);
@@ -92,8 +97,6 @@ protected:
     Desc m_desc;
 };
 
-Result createProgramFromSlang(IRenderer* renderer, IShaderProgram::Desc const& desc, IShaderProgram** outProgram);
-
 class RendererBase;
 
 typedef uint32_t ShaderComponentID;
@@ -138,9 +141,33 @@ protected:
     RendererBase* m_renderer;
     slang::TypeLayoutReflection* m_elementTypeLayout = nullptr;
     ShaderComponentID m_componentID = 0;
+public:
+    static slang::TypeLayoutReflection* _unwrapParameterGroups(slang::TypeLayoutReflection* typeLayout)
+    {
+        for (;;)
+        {
+            if (!typeLayout->getType())
+            {
+                if (auto elementTypeLayout = typeLayout->getElementTypeLayout())
+                    typeLayout = elementTypeLayout;
+            }
+
+            switch (typeLayout->getKind())
+            {
+            default:
+                return typeLayout;
+
+            case slang::TypeReflection::Kind::ConstantBuffer:
+            case slang::TypeReflection::Kind::ParameterBlock:
+                typeLayout = typeLayout->getElementTypeLayout();
+                continue;
+            }
+        }
+    }
+
 
 public:
-    RendererBase* getRenderer() { return m_renderer; }
+    RendererBase* getDevice() { return m_renderer; }
 
     slang::TypeLayoutReflection* getElementTypeLayout()
     {
@@ -164,6 +191,12 @@ protected:
     // The specialized shader object type.
     ExtendedShaderObjectType shaderObjectType = { nullptr, kInvalidComponentID };
 
+    static bool _doesValueFitInExistentialPayload(
+        slang::TypeLayoutReflection*    concreteTypeLayout,
+        slang::TypeLayoutReflection*    existentialFieldLayout);
+
+    Result _getSpecializedShaderObjectType(ExtendedShaderObjectType* outType);
+
 public:
     SLANG_REF_OBJECT_IUNKNOWN_ALL
     IShaderObject* getInterface(const Slang::Guid& guid);
@@ -176,9 +209,9 @@ public:
 
     // Get the final type this shader object represents. If the shader object's type has existential fields,
     // this function will return a specialized type using the bound sub-objects' type as specialization argument.
-    Result getSpecializedShaderObjectType(ExtendedShaderObjectType* outType);
+    virtual Result getSpecializedShaderObjectType(ExtendedShaderObjectType* outType);
 
-    RendererBase* getRenderer() { return m_layout->getRenderer(); }
+    RendererBase* getRenderer() { return m_layout->getDevice(); }
 
     SLANG_NO_THROW UInt SLANG_MCALL getEntryPointCount() SLANG_OVERRIDE { return 0; }
 
@@ -238,18 +271,9 @@ public:
     // pipeline cannot be used directly and must be specialized first.
     bool isSpecializable = false;
     ComPtr<IShaderProgram> m_program;
+
 protected:
     void initializeBase(const PipelineStateDesc& inDesc);
-};
-
-class ShaderBinary : public Slang::RefObject
-{
-public:
-    Slang::List<uint8_t> source;
-    StageType stage;
-    Slang::String entryPointName;
-    Result loadFromBlob(ISlangBlob* blob);
-    Result writeToBlob(ISlangBlob** outBlob);
 };
 
 struct ComponentKey
@@ -332,8 +356,6 @@ public:
     ShaderComponentID getComponentId(Slang::UnownedStringSlice name);
     ShaderComponentID getComponentId(ComponentKey key);
 
-    void init(ISlangFileSystem* cacheFileSystem);
-    void writeToFileSystem(ISlangMutableFileSystem* outputFileSystem);
     Slang::ComPtr<IPipelineState> getSpecializedPipelineState(PipelineKey programKey)
     {
         Slang::ComPtr<IPipelineState> result;
@@ -341,20 +363,21 @@ public:
             return result;
         return nullptr;
     }
-    Slang::RefPtr<ShaderBinary> tryLoadShaderBinary(ShaderComponentID componentId);
-    void addShaderBinary(ShaderComponentID componentId, ShaderBinary* binary);
     void addSpecializedPipeline(PipelineKey key, Slang::ComPtr<IPipelineState> specializedPipeline);
+    void free()
+    {
+        specializedPipelines = decltype(specializedPipelines)();
+        componentIds = decltype(componentIds)();
+    }
 
 protected:
-    Slang::ComPtr<ISlangFileSystem> fileSystem;
     Slang::OrderedDictionary<OwningComponentKey, ShaderComponentID> componentIds;
     Slang::OrderedDictionary<PipelineKey, Slang::ComPtr<IPipelineState>> specializedPipelines;
-    Slang::OrderedDictionary<ShaderComponentID, Slang::RefPtr<ShaderBinary>> shaderBinaries;
 };
 
 // Renderer implementation shared by all platforms.
 // Responsible for shader compilation, specialization and caching.
-class RendererBase : public Slang::RefObject, public IRenderer
+class RendererBase : public Slang::RefObject, public IDevice
 {
     friend class ShaderObjectBase;
 public:
@@ -364,26 +387,26 @@ public:
         const char** outFeatures, UInt bufferSize, UInt* outFeatureCount) SLANG_OVERRIDE;
     virtual SLANG_NO_THROW bool SLANG_MCALL hasFeature(const char* featureName) SLANG_OVERRIDE;
     virtual SLANG_NO_THROW Result SLANG_MCALL getSlangSession(slang::ISession** outSlangSession) SLANG_OVERRIDE;
-    IRenderer* getInterface(const Slang::Guid& guid);
+    IDevice* getInterface(const Slang::Guid& guid);
 
     virtual SLANG_NO_THROW Result SLANG_MCALL createShaderObject(slang::TypeReflection* type, IShaderObject** outObject) SLANG_OVERRIDE;
 
-protected:
-    // Retrieves the currently bound unspecialized pipeline.
-    // If the bound pipeline is not created from a Slang component, an implementation should return null.
-    virtual PipelineStateBase* getCurrentPipeline() = 0;
+    Result getShaderObjectLayout(
+        slang::TypeReflection*      type,
+        ShaderObjectLayoutBase**    outLayout);
+
+public:
     ExtendedShaderObjectTypeList specializationArgs;
     // Given current pipeline and root shader object binding, generate and bind a specialized pipeline if necessary.
-    Result maybeSpecializePipeline(ShaderObjectBase* inRootShaderObject);
+    Result maybeSpecializePipeline(
+        PipelineStateBase* currentPipeline,
+        ShaderObjectBase* rootObject,
+        Slang::RefPtr<PipelineStateBase>& outNewPipeline);
 
 
     virtual Result createShaderObjectLayout(
         slang::TypeLayoutReflection* typeLayout,
         ShaderObjectLayoutBase** outLayout) = 0;
-
-    Result getShaderObjectLayout(
-        slang::TypeReflection*      type,
-        ShaderObjectLayoutBase**    outLayout);
 
     virtual Result createShaderObject(
         ShaderObjectLayoutBase* layout,

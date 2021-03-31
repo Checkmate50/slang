@@ -30,7 +30,8 @@
 #include "slang-serialize-ir.h"
 #include "slang-serialize-container.h"
 
-#include "slang-doc.h"
+#include "slang-doc-extractor.h"
+#include "slang-doc-markdown-writer.h"
 
 #include "slang-check-impl.h"
 
@@ -244,7 +245,7 @@ SlangResult Session::checkPassThroughSupport(SlangPassThrough inPassThrough)
     return checkExternalCompilerSupport(this, PassThroughMode(inPassThrough));
 }
 
-SlangResult Session::compileStdLib()
+SlangResult Session::compileStdLib(slang::CompileStdLibFlags compileFlags)
 {
     if (m_builtinLinkage->mapNameToLoadedModules.Count())
     {
@@ -255,6 +256,43 @@ SlangResult Session::compileStdLib()
     // TODO(JS): Could make this return a SlangResult as opposed to exception
     addBuiltinSource(coreLanguageScope, "core", getCoreLibraryCode());
     addBuiltinSource(hlslLanguageScope, "hlsl", getHLSLLibraryCode());
+
+    if (compileFlags & slang::CompileStdLibFlag::WriteDocumentation)
+    {
+        // Not 100% clear where best to get the ASTBuilder from, but from the linkage shouldn't
+        // cause any problems with scoping
+
+        ASTBuilder* astBuilder = getBuiltinLinkage()->getASTBuilder();
+        SourceManager* sourceManager = getBuiltinSourceManager();
+
+        DiagnosticSink sink(sourceManager, Lexer::sourceLocationLexer);
+
+        List<String> docStrings;
+
+        // For all the modules add their doc output to docStrings
+        for (Module* stdlibModule : stdlibModules)
+        { 
+            RefPtr<DocMarkup> markup(new DocMarkup);
+            DocMarkupExtractor::extract(stdlibModule->getModuleDecl(), sourceManager, &sink, markup);
+
+            DocMarkdownWriter writer(markup, astBuilder);
+            writer.writeAll();
+            docStrings.add(writer.getOutput());
+        }
+
+        // Combine all together in stdlib-doc.md output fiel
+        {
+            String fileName("stdlib-doc.md");
+
+            StreamWriter writer(new FileStream(fileName, FileMode::Create));
+
+            for (auto& docString : docStrings)
+            {
+                writer.Write(docString);
+            }
+        }
+    }
+
     return SLANG_OK;
 }
 
@@ -1148,7 +1186,7 @@ static ISlangWriter* _getDefaultWriter(WriterChannel chan)
 void EndToEndCompileRequest::setWriter(WriterChannel chan, ISlangWriter* writer)
 {
     // If the user passed in null, we will use the default writer on that channel
-    m_writers[int(chan)] = writer ? writer : _getDefaultWriter(chan);
+    m_writers->setWriter(SlangWriterChannel(chan), writer ? writer : _getDefaultWriter(chan));
 
     // For diagnostic output, if the user passes in nullptr, we set on mSink.writer as that enables buffering on DiagnosticSink
     if (chan == WriterChannel::Diagnostic)
@@ -1269,8 +1307,10 @@ CompileRequestBase::CompileRequestBase(
 
 FrontEndCompileRequest::FrontEndCompileRequest(
     Linkage*        linkage,
+    StdWriters*     writers, 
     DiagnosticSink* sink)
     : CompileRequestBase(linkage, sink)
+    , m_writers(writers)
 {
 }
 
@@ -1502,6 +1542,26 @@ static void _outputIncludesRec(SourceView* sourceView, Index depth, ViewInitiati
     }
 }
 
+static void _outputPreprocessorTokens(const TokenList& toks, ISlangWriter* writer)
+{
+    if (writer == nullptr)
+    {
+        return;
+    }
+
+    StringBuilder buf;
+    for (const auto& tok : toks)
+    {
+        buf << tok.getContent();
+        // We'll separate tokens with space for now
+        buf.appendChar(' ');
+    }
+
+    buf.appendChar('\n');
+
+    writer->write(buf.getBuffer(), buf.getLength());
+}
+
 static void _outputIncludes(const List<SourceFile*>& sourceFiles, SourceManager* sourceManager, DiagnosticSink* sink)
 {
     // Set up the hierarchy to know how all the source views relate. This could be argued as overkill, but makes recursive
@@ -1613,6 +1673,16 @@ void FrontEndCompileRequest::parseTranslationUnit(
             _outputIncludes(translationUnit->getSourceFiles(), getSink()->getSourceManager(), getSink());
         }
 
+        if (outputPreprocessor)
+        {
+            if (m_writers)
+            {
+                _outputPreprocessorTokens(tokens, m_writers->getWriter(SLANG_WRITER_CHANNEL_STD_OUTPUT));
+            }
+            // If we output the preprocessor output then we are done doing anything else
+            return;
+        }
+
         parseSourceFile(
             astBuilder,
             translationUnit,
@@ -1639,25 +1709,7 @@ void FrontEndCompileRequest::parseTranslationUnit(
             }
         }
 
-        if (shouldDocument)
-        {
-            RefPtr<DocMarkup> markup(new DocMarkup);
-            markup->extract(translationUnit->getModuleDecl(), getSourceManager(), getSink());
 
-            // Extract to a file
-
-            const String& path = sourceFile->getPathInfo().foundPath;
-            if (path.getLength())
-            {
-                String fileName = Path::getFileNameWithoutExt(path);
-                fileName.append(".md");
-
-                StringBuilder buf;
-                DocumentationUtil::writeMarkdown(markup, buf);
-
-                File::writeAllText(fileName, buf);
-            }
-        }
 
 #if 0
         // Test serialization
@@ -1808,6 +1860,12 @@ SlangResult FrontEndCompileRequest::executeActionsInner()
         parseTranslationUnit(translationUnit.Ptr());
     }
 
+    if (outputPreprocessor)
+    {
+        // If doing pre-processor output, then we are done
+        return SLANG_OK;
+    }
+
     if (getSink()->getErrorCount() != 0)
         return SLANG_FAIL;
 
@@ -1815,6 +1873,33 @@ SlangResult FrontEndCompileRequest::executeActionsInner()
     checkAllTranslationUnits();
     if (getSink()->getErrorCount() != 0)
         return SLANG_FAIL;
+
+    // After semantic checking is performed we can try and output doc information for this
+    if (shouldDocument)
+    {
+        // Not 100% clear where best to get the ASTBuilder from, but from the linkage shouldn't
+        // cause any problems with scoping
+        ASTBuilder* astBuilder = getLinkage()->getASTBuilder();
+
+        ISlangWriter* writer = getSink()->writer;
+
+        // Write output to the diagnostic writer
+        if (writer)
+        {
+            for (TranslationUnitRequest* translationUnit : translationUnits)
+            {
+                RefPtr<DocMarkup> markup(new DocMarkup);
+                DocMarkupExtractor::extract(translationUnit->getModuleDecl(), getSourceManager(), getSink(), markup);
+
+                // Convert to markdown            
+                DocMarkdownWriter markdownWriter(markup, astBuilder);
+                markdownWriter.writeAll();
+
+                UnownedStringSlice docText = markdownWriter.getOutput().getUnownedSlice();
+                writer->write(docText.begin(), docText.getLength());            
+            }
+        }
+    }
 
     // Look up all the entry points that are expected,
     // and use them to populate the `program` member.
@@ -1907,13 +1992,15 @@ void EndToEndCompileRequest::init()
 {
     m_sink.setSourceManager(m_linkage->getSourceManager());
 
+    m_writers = new StdWriters;
+
     // Set all the default writers
     for (int i = 0; i < int(WriterChannel::CountOf); ++i)
     {
         setWriter(WriterChannel(i), nullptr);
     }
 
-    m_frontEndReq = new FrontEndCompileRequest(getLinkage(), getSink());
+    m_frontEndReq = new FrontEndCompileRequest(getLinkage(), m_writers, getSink());
 
     m_backEndReq = new BackEndCompileRequest(getLinkage(), getSink());
 }
@@ -1950,6 +2037,11 @@ SlangResult EndToEndCompileRequest::executeActionsInner()
     if (m_passThrough == PassThroughMode::None)
     {
         SLANG_RETURN_ON_FAIL(getFrontEndReq()->executeActionsInner());
+    }
+
+    if (getFrontEndReq()->outputPreprocessor)
+    {
+        return SLANG_OK;
     }
 
     // If command line specifies to skip codegen, we exit here.
@@ -2241,7 +2333,7 @@ RefPtr<Module> Linkage::loadModule(
     SourceLoc const&    srcLoc,
     DiagnosticSink*     sink)
 {
-    RefPtr<FrontEndCompileRequest> frontEndReq = new FrontEndCompileRequest(this, sink);
+    RefPtr<FrontEndCompileRequest> frontEndReq = new FrontEndCompileRequest(this, nullptr, sink);
 
     RefPtr<TranslationUnitRequest> translationUnit = new TranslationUnitRequest(frontEndReq);
     translationUnit->compileRequest = frontEndReq;
@@ -2679,6 +2771,33 @@ SLANG_NO_THROW SlangResult SLANG_MCALL ComponentType::getEntryPointCode(
     ComPtr<ISlangBlob> blob;
     SLANG_RETURN_ON_FAIL(entryPointResult.getBlob(blob));
     *outCode = blob.detach();
+    return SLANG_OK;
+}
+
+SLANG_NO_THROW SlangResult SLANG_MCALL ComponentType::getEntryPointHostCallable(
+    int                     entryPointIndex,
+    int                     targetIndex,
+    ISlangSharedLibrary**   outSharedLibrary,
+    slang::IBlob**          outDiagnostics)
+{
+    auto linkage = getLinkage();
+    if(targetIndex < 0 || targetIndex >= linkage->targets.getCount())
+        return SLANG_E_INVALID_ARG;
+    auto target = linkage->targets[targetIndex];
+
+    auto targetProgram = getTargetProgram(target);
+
+    DiagnosticSink sink(linkage->getSourceManager(), Lexer::sourceLocationLexer);
+    auto& entryPointResult = targetProgram->getOrCreateEntryPointResult(entryPointIndex, &sink);
+    sink.getBlobIfNeeded(outDiagnostics);
+
+    if(entryPointResult.format == ResultFormat::None )
+        return SLANG_FAIL;
+
+    ComPtr<ISlangSharedLibrary> sharedLibrary;
+    SLANG_RETURN_ON_FAIL(entryPointResult.getSharedLibrary(sharedLibrary));
+
+    *outSharedLibrary = sharedLibrary.detach();
     return SLANG_OK;
 }
 
@@ -3600,6 +3719,7 @@ void Session::addBuiltinSource(
     DiagnosticSink sink(sourceManager, Lexer::sourceLocationLexer);
     RefPtr<FrontEndCompileRequest> compileRequest = new FrontEndCompileRequest(
         m_builtinLinkage,
+        nullptr, 
         &sink);
     compileRequest->m_isStandardLibraryCode = true;
 
@@ -4334,7 +4454,10 @@ SlangReflection* EndToEndCompileRequest::getReflection()
 
     auto targetReq = linkage->targets[targetIndex];
     auto targetProgram = program->getTargetProgram(targetReq);
-    auto programLayout = targetProgram->getExistingLayout();
+
+
+    DiagnosticSink sink(linkage->getSourceManager(), Lexer::sourceLocationLexer);
+    auto programLayout = targetProgram->getOrCreateLayout(&sink);
 
     return (SlangReflection*)programLayout;
 }

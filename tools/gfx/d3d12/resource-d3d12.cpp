@@ -60,71 +60,16 @@ void D3D12BarrierSubmitter::transition(ID3D12Resource* resource, D3D12_RESOURCE_
 	return resource ? D3DUtil::calcFormat(usage, resource->GetDesc().Format) : DXGI_FORMAT_UNKNOWN;
 }
 
-void D3D12ResourceBase::transition(D3D12_RESOURCE_STATES nextState, D3D12BarrierSubmitter& submitter)
+void D3D12ResourceBase::transition(
+    D3D12_RESOURCE_STATES oldState,
+    D3D12_RESOURCE_STATES nextState,
+    D3D12BarrierSubmitter& submitter)
 {
 	// Transition only if there is a resource
-	if (m_resource)
+    if (m_resource && oldState != nextState)
 	{
-        submitter.transition(m_resource, m_state, nextState);
-        m_state = nextState;
+        submitter.transition(m_resource, oldState, nextState);
     }
-}
-
-/* !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! D3D12CounterFence !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! */
-
-D3D12CounterFence::~D3D12CounterFence()
-{
-	if (m_event)
-	{
-		CloseHandle(m_event);
-	}
-}
-
-Result D3D12CounterFence::init(ID3D12Device* device, uint64_t initialValue)
-{
-	m_currentValue = initialValue;
-
-	SLANG_RETURN_ON_FAIL(device->CreateFence(m_currentValue, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(m_fence.writeRef())));
-	// Create an event handle to use for frame synchronization.
-	m_event = ::CreateEvent(nullptr, FALSE, FALSE, nullptr);
-	if (m_event == nullptr)
-	{
-		Result res = HRESULT_FROM_WIN32(GetLastError());
-		return SLANG_FAILED(res) ? res : SLANG_FAIL;
-	}
-	return SLANG_OK;
-}
-
-UInt64 D3D12CounterFence::nextSignal(ID3D12CommandQueue* commandQueue)
-{
-	// Increment the fence value. Save on the frame - we'll know that frame is done when the fence value >=
-	m_currentValue++;
-	// Schedule a Signal command in the queue.
-	Result res = commandQueue->Signal(m_fence, m_currentValue);
-	if (SLANG_FAILED(res))
-	{
-		assert(!"Signal failed");
-	}
-	return m_currentValue;
-}
-
-void D3D12CounterFence::waitUntilCompleted(uint64_t completedValue)
-{
-	// You can only wait for a value that is less than or equal to the current value
-	assert(completedValue <= m_currentValue);
-
-	// Wait until the previous frame is finished.
-	while (m_fence->GetCompletedValue() < completedValue)
-	{
-		// Make it signal with the current value
-		SLANG_ASSERT_VOID_ON_FAIL(m_fence->SetEventOnCompletion(completedValue, m_event));
-		WaitForSingleObject(m_event, INFINITE);
-	}
-}
-
-void D3D12CounterFence::nextSignalAndWait(ID3D12CommandQueue* commandQueue)
-{
-	waitUntilCompleted(nextSignal(commandQueue));
 }
 
 /* !!!!!!!!!!!!!!!!!!!!!!!!! D3D12Resource !!!!!!!!!!!!!!!!!!!!!!!! */
@@ -155,7 +100,7 @@ void D3D12Resource::setDebugName(const wchar_t* name)
 	}
 }
 
-void D3D12Resource::setResource(ID3D12Resource* resource, D3D12_RESOURCE_STATES initialState)
+void D3D12Resource::setResource(ID3D12Resource* resource)
 {
 	if (resource != m_resource)
 	{
@@ -169,8 +114,6 @@ void D3D12Resource::setResource(ID3D12Resource* resource, D3D12_RESOURCE_STATES 
 		}
 		m_resource = resource;
 	}
-	m_prevState = initialState;
-	m_state = initialState;
 }
 
 void D3D12Resource::setResourceNull()
@@ -187,7 +130,7 @@ Result D3D12Resource::initCommitted(ID3D12Device* device, const D3D12_HEAP_PROPE
 	setResourceNull();
 	ComPtr<ID3D12Resource> resource;
 	SLANG_RETURN_ON_FAIL(device->CreateCommittedResource(&heapProps, heapFlags, &resourceDesc, initState, clearValue, IID_PPV_ARGS(resource.writeRef())));
-	setResource(resource, initState);
+	setResource(resource);
 	return SLANG_OK;
 }
 
@@ -203,12 +146,6 @@ void D3D12Resource::swap(ComPtr<ID3D12Resource>& resourceInOut)
 	ID3D12Resource* tmp = m_resource;
 	m_resource = resourceInOut.detach();
 	resourceInOut.attach(tmp);
-}
-
-void D3D12Resource::setState(D3D12_RESOURCE_STATES state)
-{
-	m_prevState = state;
-	m_state = state;
 }
 
 } // renderer_test

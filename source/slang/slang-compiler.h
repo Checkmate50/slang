@@ -7,6 +7,8 @@
 #include "../core/slang-downstream-compiler.h"
 #include "../core/slang-archive-file-system.h"
 
+#include "../core/slang-std-writers.h"
+
 #include "../../slang-com-ptr.h"
 
 #include "slang-capability.h"
@@ -294,6 +296,11 @@ namespace Slang
         SLANG_NO_THROW SlangResult SLANG_MCALL link(
             slang::IComponentType**         outLinkedComponentType,
             ISlangBlob**                    outDiagnostics) SLANG_OVERRIDE;
+        SLANG_NO_THROW SlangResult SLANG_MCALL getEntryPointHostCallable(
+            int                     entryPointIndex,
+            int                     targetIndex,
+            ISlangSharedLibrary**   outSharedLibrary,
+            slang::IBlob**          outDiagnostics) SLANG_OVERRIDE;
 
             /// Get the linkage (aka "session" in the public API) for this component type.
         Linkage* getLinkage() { return m_linkage; }
@@ -705,6 +712,15 @@ namespace Slang
                 outDiagnostics);
         }
 
+        SLANG_NO_THROW SlangResult SLANG_MCALL getEntryPointHostCallable(
+            int                     entryPointIndex,
+            int                     targetIndex,
+            ISlangSharedLibrary**   outSharedLibrary,
+            slang::IBlob**          outDiagnostics) SLANG_OVERRIDE
+        {
+            return Super::getEntryPointHostCallable(entryPointIndex, targetIndex, outSharedLibrary, outDiagnostics);
+        }
+
             /// Create an entry point that refers to the given function.
         static RefPtr<EntryPoint> create(
             Linkage*            linkage,
@@ -910,6 +926,15 @@ namespace Slang
             return Super::link(
                 outLinkedComponentType,
                 outDiagnostics);
+        }
+
+        SLANG_NO_THROW SlangResult SLANG_MCALL getEntryPointHostCallable(
+            int                     entryPointIndex,
+            int                     targetIndex,
+            ISlangSharedLibrary**   outSharedLibrary,
+            slang::IBlob**          outDiagnostics) SLANG_OVERRIDE
+        {
+            return Super::getEntryPointHostCallable(entryPointIndex, targetIndex, outSharedLibrary, outDiagnostics);
         }
 
         SLANG_NO_THROW SlangResult SLANG_MCALL findEntryPointByName(
@@ -1524,6 +1549,8 @@ namespace Slang
         bool shouldDumpAST = false;
         bool shouldDocument = false;
 
+        bool outputPreprocessor = false;
+
             /// If true will after lexical analysis output the hierarchy of includes to stdout
         bool outputIncludes = false;
 
@@ -1541,8 +1568,11 @@ namespace Slang
     class FrontEndCompileRequest : public CompileRequestBase
     {
     public:
+            /// Note that writers can be parsed as nullptr to disable output,
+            /// and individual channels set to null to disable them
         FrontEndCompileRequest(
             Linkage*        linkage,
+            StdWriters*     writers, 
             DiagnosticSink* sink);
 
         int addEntryPoint(
@@ -1658,6 +1688,8 @@ namespace Slang
         RefPtr<ComponentType> m_globalAndEntryPointsComponentType;
 
         List<RefPtr<ComponentType>> m_unspecializedEntryPoints;
+
+        RefPtr<StdWriters> m_writers;
     };
 
         /// A visitor for use with `ComponentType`s, allowing dispatch over the concrete subclasses.
@@ -2000,7 +2032,7 @@ namespace Slang
             List<String> const &    genericTypeNames);
 
         void setWriter(WriterChannel chan, ISlangWriter* writer);
-        ISlangWriter* getWriter(WriterChannel chan) const { return m_writers[int(chan)]; }
+        ISlangWriter* getWriter(WriterChannel chan) const { return m_writers->getWriter(SlangWriterChannel(chan)); }
 
             /// The end to end request can be passed as nullptr, if not driven by one
         SlangResult executeActionsInner();
@@ -2043,7 +2075,8 @@ namespace Slang
         RefPtr<BackEndCompileRequest>   m_backEndReq;
 
         // For output
-        ComPtr<ISlangWriter> m_writers[SLANG_WRITER_CHANNEL_COUNT_OF];
+
+        RefPtr<StdWriters> m_writers;
     };
 
     void generateOutput(
@@ -2176,7 +2209,7 @@ namespace Slang
         SLANG_NO_THROW SlangResult SLANG_MCALL checkCompileTargetSupport(SlangCompileTarget target) override;
         SLANG_NO_THROW SlangResult SLANG_MCALL checkPassThroughSupport(SlangPassThrough passThrough) override;
 
-        SLANG_NO_THROW SlangResult SLANG_MCALL compileStdLib() override;
+        SLANG_NO_THROW SlangResult SLANG_MCALL compileStdLib(slang::CompileStdLibFlags flags) override;
         SLANG_NO_THROW SlangResult SLANG_MCALL loadStdLib(const void* stdLib, size_t stdLibSizeInBytes) override;
         SLANG_NO_THROW SlangResult SLANG_MCALL saveStdLib(SlangArchiveType archiveType, ISlangBlob** outBlob) override;
 

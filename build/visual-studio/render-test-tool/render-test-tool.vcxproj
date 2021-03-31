@@ -98,8 +98,8 @@
     <ClCompile>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
-      <PreprocessorDefinitions>_DEBUG;SLANG_SHARED_LIBRARY_TOOL;RENDER_TEST_CUDA;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\..\..;..\..\..\external;..\..\..\source;..\..\..\tools\gfx;..\..\..\tools\graphics-app-framework;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.1\include;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.1\common\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>_DEBUG;SLANG_SHARED_LIBRARY_TOOL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>..\..\..;..\..\..\external;..\..\..\source;..\..\..\tools\gfx;..\..\..\tools\platform;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <DebugInformationFormat>EditAndContinue</DebugInformationFormat>
       <Optimization>Disabled</Optimization>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
@@ -119,8 +119,8 @@
     <ClCompile>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
-      <PreprocessorDefinitions>_DEBUG;SLANG_SHARED_LIBRARY_TOOL;RENDER_TEST_CUDA;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\..\..;..\..\..\external;..\..\..\source;..\..\..\tools\gfx;..\..\..\tools\graphics-app-framework;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.1\include;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.1\common\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>_DEBUG;SLANG_SHARED_LIBRARY_TOOL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>..\..\..;..\..\..\external;..\..\..\source;..\..\..\tools\gfx;..\..\..\tools\platform;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <DebugInformationFormat>EditAndContinue</DebugInformationFormat>
       <Optimization>Disabled</Optimization>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
@@ -140,8 +140,8 @@
     <ClCompile>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
-      <PreprocessorDefinitions>NDEBUG;SLANG_SHARED_LIBRARY_TOOL;RENDER_TEST_CUDA;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\..\..;..\..\..\external;..\..\..\source;..\..\..\tools\gfx;..\..\..\tools\graphics-app-framework;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.1\include;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.1\common\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>NDEBUG;SLANG_SHARED_LIBRARY_TOOL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>..\..\..;..\..\..\external;..\..\..\source;..\..\..\tools\gfx;..\..\..\tools\platform;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <Optimization>Full</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
@@ -165,8 +165,8 @@
     <ClCompile>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
-      <PreprocessorDefinitions>NDEBUG;SLANG_SHARED_LIBRARY_TOOL;RENDER_TEST_CUDA;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\..\..;..\..\..\external;..\..\..\source;..\..\..\tools\gfx;..\..\..\tools\graphics-app-framework;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.1\include;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.1\common\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>NDEBUG;SLANG_SHARED_LIBRARY_TOOL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>..\..\..;..\..\..\external;..\..\..\source;..\..\..\tools\gfx;..\..\..\tools\platform;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <Optimization>Full</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
@@ -187,30 +187,19 @@
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\..\tools\render-test\bind-location.h" />
-    <ClInclude Include="..\..\..\tools\render-test\cpu-compute-util.h" />
-    <ClInclude Include="..\..\..\tools\render-test\cuda\cuda-compute-util.h" />
     <ClInclude Include="..\..\..\tools\render-test\options.h" />
     <ClInclude Include="..\..\..\tools\render-test\png-serialize-util.h" />
     <ClInclude Include="..\..\..\tools\render-test\shader-input-layout.h" />
     <ClInclude Include="..\..\..\tools\render-test\shader-renderer-util.h" />
     <ClInclude Include="..\..\..\tools\render-test\slang-support.h" />
-    <ClInclude Include="..\..\..\tools\render-test\surface.h" />
-    <ClInclude Include="..\..\..\tools\render-test\window.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\..\tools\render-test\bind-location.cpp" />
-    <ClCompile Include="..\..\..\tools\render-test\cpu-compute-util.cpp" />
-    <ClCompile Include="..\..\..\tools\render-test\cuda\cuda-compute-util.cpp" />
     <ClCompile Include="..\..\..\tools\render-test\options.cpp" />
     <ClCompile Include="..\..\..\tools\render-test\png-serialize-util.cpp" />
     <ClCompile Include="..\..\..\tools\render-test\render-test-main.cpp" />
     <ClCompile Include="..\..\..\tools\render-test\shader-input-layout.cpp" />
     <ClCompile Include="..\..\..\tools\render-test\shader-renderer-util.cpp" />
     <ClCompile Include="..\..\..\tools\render-test\slang-support.cpp" />
-    <ClCompile Include="..\..\..\tools\render-test\surface.cpp" />
-    <ClCompile Include="..\..\..\tools\render-test\window.cpp" />
-    <ClCompile Include="..\..\..\tools\render-test\windows\win-window.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\core\core.vcxproj">
@@ -225,7 +214,7 @@
     <ProjectReference Include="..\gfx-util\gfx-util.vcxproj">
       <Project>{F5ADB74E-02A7-44FB-AA3B-FC02F8AC7A4B}</Project>
     </ProjectReference>
-    <ProjectReference Include="..\graphics-app-framework\graphics-app-framework.vcxproj">
+    <ProjectReference Include="..\platform\platform.vcxproj">
       <Project>{3565FE5E-4FA3-11EB-AE93-0242AC130002}</Project>
     </ProjectReference>
   </ItemGroup>

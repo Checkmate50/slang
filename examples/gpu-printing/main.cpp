@@ -6,7 +6,7 @@
 using Slang::ComPtr;
 
 #include "slang-gfx.h"
-#include "tools/graphics-app-framework/window.h"
+#include "tools/platform/window.h"
 #include "source/core/slang-basic.h"
 using namespace gfx;
 
@@ -14,22 +14,9 @@ using namespace gfx;
 
 #include "gpu-printing.h"
 
-ComPtr<slang::ISession> createSlangSession(gfx::IRenderer* renderer)
+ComPtr<slang::ISession> createSlangSession(gfx::IDevice* device)
 {
-    ComPtr<slang::IGlobalSession> slangGlobalSession;
-    slangGlobalSession.attach(spCreateSession(NULL));
-
-    slang::TargetDesc targetDesc;
-    targetDesc.format = SLANG_DXBC;
-    targetDesc.profile = spFindProfile(slangGlobalSession, "sm_5_0");
-
-    slang::SessionDesc sessionDesc;
-    sessionDesc.targetCount = 1;
-    sessionDesc.targets = &targetDesc;
-
-    ComPtr<slang::ISession> slangSession;
-    slangGlobalSession->createSession(sessionDesc, slangSession.writeRef());
-
+    ComPtr<slang::ISession> slangSession = device->getSlangSession();
     return slangSession;
 }
 
@@ -44,7 +31,7 @@ ComPtr<slang::IModule> compileShaderModuleFromFile(slang::ISession* slangSession
     const SlangResult compileRes = spCompile(slangRequest);
     if(auto diagnostics = spGetDiagnosticOutput(slangRequest))
     {
-        reportError("%s", diagnostics);
+        printf("%s", diagnostics);
     }
 
     if(SLANG_FAILED(compileRes))
@@ -63,16 +50,13 @@ struct ExampleProgram
 int gWindowWidth = 640;
 int gWindowHeight = 480;
 
-gfx::ApplicationContext*    gAppContext;
-ComPtr<gfx::IRenderer>      gRenderer;
+ComPtr<gfx::IDevice>      gDevice;
 
 ComPtr<slang::ISession> gSlangSession;
 ComPtr<slang::IModule>   gSlangModule;
 ComPtr<gfx::IShaderProgram> gProgram;
 
-ComPtr<gfx::IPipelineLayout> gPipelineLayout;
 ComPtr<gfx::IPipelineState> gPipelineState;
-ComPtr<gfx::IDescriptorSet> gDescriptorSet;
 
 Slang::Dictionary<int, std::string> gHashedStrings;
 
@@ -88,77 +72,30 @@ ComPtr<gfx::IShaderProgram> loadComputeProgram(slang::IModule* slangModule, char
 
     gGPUPrinting.loadStrings(linkedProgram->getLayout());
 
-    ComPtr<ISlangBlob> codeBlob;
-    linkedProgram->getEntryPointCode(0, 0, codeBlob.writeRef());
-
-    char const* code = (char const*) codeBlob->getBufferPointer();
-    char const* codeEnd = code + codeBlob->getBufferSize();
-
-    gfx::IShaderProgram::KernelDesc kernelDescs[] =
-    {
-        { gfx::StageType::Compute,    code,     codeEnd },
-    };
-
     gfx::IShaderProgram::Desc programDesc = {};
     programDesc.pipelineType = gfx::PipelineType::Compute;
-    programDesc.kernels = &kernelDescs[0];
-    programDesc.kernelCount = 2;
+    programDesc.slangProgram = linkedProgram;
 
-    auto shaderProgram = gRenderer->createProgram(programDesc);
+    auto shaderProgram = gDevice->createProgram(programDesc);
 
     return shaderProgram;
 }
 
 Result execute()
 {
-    IRenderer::Desc rendererDesc;
-    rendererDesc.rendererType = gfx::RendererType::DirectX11;
-    Result res = gfxCreateRenderer(&rendererDesc, gRenderer.writeRef());
+    IDevice::Desc deviceDesc;
+    Result res = gfxCreateDevice(&deviceDesc, gDevice.writeRef());
     if(SLANG_FAILED(res)) return res;
 
-    gSlangSession = createSlangSession(gRenderer);
+    gSlangSession = createSlangSession(gDevice);
     gSlangModule = compileShaderModuleFromFile(gSlangSession, "kernels.slang");
 
     gProgram = loadComputeProgram(gSlangModule, "computeMain");
     if(!gProgram) return SLANG_FAIL;
 
-    IDescriptorSetLayout::SlotRangeDesc slotRanges[] =
-    {
-        IDescriptorSetLayout::SlotRangeDesc(DescriptorSlotType::StorageBuffer),
-    };
-    IDescriptorSetLayout::Desc descriptorSetLayoutDesc;
-    descriptorSetLayoutDesc.slotRangeCount = 1;
-    descriptorSetLayoutDesc.slotRanges = &slotRanges[0];
-    auto descriptorSetLayout = gRenderer->createDescriptorSetLayout(descriptorSetLayoutDesc);
-    if(!descriptorSetLayout) return SLANG_FAIL;
-
-    IPipelineLayout::DescriptorSetDesc descriptorSets[] =
-    {
-        IPipelineLayout::DescriptorSetDesc( descriptorSetLayout ),
-    };
-    IPipelineLayout::Desc pipelineLayoutDesc;
-    pipelineLayoutDesc.renderTargetCount = 1;
-    pipelineLayoutDesc.descriptorSetCount = 1;
-    pipelineLayoutDesc.descriptorSets = &descriptorSets[0];
-    auto pipelineLayout = gRenderer->createPipelineLayout(pipelineLayoutDesc);
-    if(!pipelineLayout) return SLANG_FAIL;
-
-    gPipelineLayout = pipelineLayout;
-
-    // Once we have the descriptor set layout, we can allocate
-    // and fill in a descriptor set to hold our parameters.
-    //
-    auto descriptorSet = gRenderer->createDescriptorSet(descriptorSetLayout, IDescriptorSet::Flag::Transient);
-    if(!descriptorSet) return SLANG_FAIL;
-
-//    descriptorSet->setConstantBuffer(0, 0, gConstantBuffer);
-
-    gDescriptorSet = descriptorSet;
-
     ComputePipelineStateDesc desc;
-    desc.pipelineLayout = gPipelineLayout;
     desc.program = gProgram;
-    auto pipelineState = gRenderer->createComputePipelineState(desc);
+    auto pipelineState = gDevice->createComputePipelineState(desc);
     if(!pipelineState) return SLANG_FAIL;
 
     gPipelineState = pipelineState;
@@ -169,46 +106,46 @@ Result execute()
     printBufferDesc.init(printBufferSize);
     printBufferDesc.elementSize = sizeof(uint32_t);
     printBufferDesc.cpuAccessFlags = IResource::AccessFlag::Read; // | Resource::AccessFlag::Write;
-    auto printBuffer = gRenderer->createBufferResource(IResource::Usage::UnorderedAccess, printBufferDesc);
+    auto printBuffer =
+        gDevice->createBufferResource(IResource::Usage::UnorderedAccess, printBufferDesc);
 
     IResourceView::Desc printBufferViewDesc;
     printBufferViewDesc.type = IResourceView::Type::UnorderedAccess;
-    auto printBufferView = gRenderer->createBufferView(printBuffer, printBufferViewDesc);
+    auto printBufferView = gDevice->createBufferView(printBuffer, printBufferViewDesc);
 
-    // TODO: need to copy a zero into the start of the print buffer!
+    ITransientResourceHeap::Desc transientResourceHeapDesc = {};
+    transientResourceHeapDesc.constantBufferSize = 256;
+    auto transientHeap = gDevice->createTransientResourceHeap(transientResourceHeapDesc);
 
-    gDescriptorSet->setResource(0, 0, printBufferView);
-    gRenderer->setDescriptorSet(PipelineType::Compute, gPipelineLayout, 0, gDescriptorSet);
-
-    gRenderer->setPipelineState(gPipelineState);
-    gRenderer->dispatchCompute(1, 1, 1);
-
+    ICommandQueue::Desc queueDesc = {ICommandQueue::QueueType::Graphics};
+    auto queue = gDevice->createCommandQueue(queueDesc);
+    auto commandBuffer = transientHeap->createCommandBuffer();
+    auto encoder = commandBuffer->encodeComputeCommands();
+    auto rootShaderObject = gDevice->createRootShaderObject(gProgram);
+    encoder->setPipelineState(gPipelineState);
+    encoder->bindRootShaderObject(rootShaderObject);
+    encoder->dispatchCompute(1, 1, 1);
+    encoder->endEncoding();
+    commandBuffer->close();
+    queue->executeCommandBuffer(commandBuffer);
     // TODO: need to copy from the print buffer to a staging buffer...
 
-    auto printBufferData = (uint32_t*) gRenderer->map(printBuffer, MapFlavor::HostRead);
+    ComPtr<ISlangBlob> blob;
+    gDevice->readBufferResource(printBuffer, 0, printBufferSize, blob.writeRef());
 
-    gGPUPrinting.processGPUPrintCommands(printBufferData, printBufferSize);
+    gGPUPrinting.processGPUPrintCommands(blob->getBufferPointer(), printBufferSize);
 
     return SLANG_OK;
 }
 
 };
 
-// This "inner" main function is used by the platform abstraction
-// layer to deal with differences in how an entry point needs
-// to be defined for different platforms.
-//
-void innerMain(ApplicationContext* context)
+int main()
 {
     ExampleProgram app;
-
     if (SLANG_FAILED(app.execute()))
     {
-        return exitApplication(context, 1);
+        return -1;
     }
+    return 0;
 }
-
-// This macro instantiates an appropriate main function to
-// invoke the `innerMain` above.
-//
-GFX_CONSOLE_MAIN(innerMain)

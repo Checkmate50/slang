@@ -30,6 +30,53 @@ namespace gfx {
     return (res == VK_SUCCESS) ? SLANG_OK : SLANG_FAIL;
 }
 
+VkShaderStageFlags VulkanUtil::getShaderStage(SlangStage stage)
+{
+    switch (stage)
+    {
+    case SLANG_STAGE_ANY_HIT:
+        return VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
+    case SLANG_STAGE_CALLABLE:
+        return VK_SHADER_STAGE_CALLABLE_BIT_KHR;
+    case SLANG_STAGE_CLOSEST_HIT:
+        return VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+    case SLANG_STAGE_COMPUTE:
+        return VK_SHADER_STAGE_COMPUTE_BIT;
+    case SLANG_STAGE_DOMAIN:
+        return VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT;
+    case SLANG_STAGE_FRAGMENT:
+        return VK_SHADER_STAGE_FRAGMENT_BIT;
+    case SLANG_STAGE_GEOMETRY:
+        return VK_SHADER_STAGE_GEOMETRY_BIT;
+    case SLANG_STAGE_HULL:
+        return VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
+    case SLANG_STAGE_INTERSECTION:
+        return VK_SHADER_STAGE_INTERSECTION_BIT_KHR;
+    case SLANG_STAGE_RAY_GENERATION:
+        return VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+    case SLANG_STAGE_VERTEX:
+        return VK_SHADER_STAGE_VERTEX_BIT;
+    default:
+        assert(!"unsupported stage.");
+        return VkShaderStageFlags(-1);
+    }
+}
+
+VkPipelineBindPoint VulkanUtil::getPipelineBindPoint(PipelineType pipelineType)
+{
+    switch (pipelineType)
+    {
+    case gfx::PipelineType::Graphics:
+        return VK_PIPELINE_BIND_POINT_GRAPHICS;
+    case gfx::PipelineType::Compute:
+        return VK_PIPELINE_BIND_POINT_COMPUTE;
+    case gfx::PipelineType::RayTracing:
+        return VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR;
+    default:
+        return VkPipelineBindPoint(-1);
+    }
+}
+
 /* static */Slang::Result VulkanUtil::handleFail(VkResult res)
 {
     if (res != VK_SUCCESS)
@@ -55,6 +102,37 @@ namespace gfx {
     }
     assert(!"Unknown topology");
     return VK_PRIMITIVE_TOPOLOGY_MAX_ENUM;
+}
+
+VkImageLayout VulkanUtil::mapResourceStateToLayout(ResourceState state)
+{
+    switch (state)
+    {
+    case ResourceState::Undefined:
+        return VK_IMAGE_LAYOUT_UNDEFINED;
+    case ResourceState::ShaderResource:
+        return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    case ResourceState::UnorderedAccess:
+        return VK_IMAGE_LAYOUT_GENERAL;
+    case ResourceState::RenderTarget:
+        return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    case ResourceState::DepthRead:
+        return VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+    case ResourceState::DepthWrite:
+        return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    case ResourceState::Present:
+        return VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    case ResourceState::CopySource:
+        return VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    case ResourceState::CopyDestination:
+        return VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    case ResourceState::ResolveSource:
+        return VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    case ResourceState::ResolveDestination:
+        return VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    default:
+        return VK_IMAGE_LAYOUT_UNDEFINED;
+    }
 }
 
 } // renderer_test

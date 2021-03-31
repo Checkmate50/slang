@@ -58,6 +58,8 @@ protected:
     void _emitGLSLByteAddressBuffer(IRGlobalParam* varDecl, IRByteAddressBufferTypeBase* byteAddressBufferType);
     void _emitGLSLParameterGroup(IRGlobalParam* varDecl, IRUniformParameterGroupType* type);
 
+    void _emitGLSLPerVertexVaryingFragmentInput(IRGlobalParam* param, IRType* type);
+
     void _emitGLSLImageFormatModifier(IRInst* var, IRTextureType* resourceType);
 
     void _emitGLSLLayoutQualifiers(IRVarLayout* layout, EmitVarChain* inChain, LayoutResourceKind filter = LayoutResourceKind::None);
@@ -105,6 +107,8 @@ protected:
     bool _tryEmitBitBinOp(IRInst* inst, const EmitOpInfo& bitOp, const EmitOpInfo& boolOp, const EmitOpInfo& inOuterPrec);
 
     void _requireRayTracing();
+
+    void _emitSpecialFloatImpl(IRType* type, const char* valueExpr);
 
     RefPtr<GLSLExtensionTracker> m_glslExtensionTracker;
 };

@@ -17,12 +17,22 @@ syntax constexpr : ConstExprModifier;
 // visible at the global-memory scope
 syntax globallycoherent : GloballyCoherentModifier;
 
-// A type that can be used as an operand for builtins
+/// Modifier to disable inteprolation and force per-vertex passing of a varying attribute.
+///
+/// When a varying attribute passed to the fragment shader is marked `pervertex`, it will
+/// not be interpolated during rasterization (similar to `nointerpolate` attributes).
+/// Unlike a plain `nointerpolate` attribute, this modifier indicates that the attribute
+/// should *only* be acccessed through the `GetAttributeAtVertex()` operation, so access its
+/// distinct per-vertex values.
+///
+syntax pervertex : PerVertexModifier;
+
+/// A type that can be used as an operand for builtins
 [sealed]
 [builtin]
 interface __BuiltinType {}
 
-// A type that can be used for arithmetic operations
+/// A type that can be used for arithmetic operations
 [sealed]
 [builtin]
 interface __BuiltinArithmeticType : __BuiltinType
@@ -31,28 +41,28 @@ interface __BuiltinArithmeticType : __BuiltinType
     __init(int value);
 }
 
-    /// A type that can be used for logical/bitwsie operations
+/// A type that can be used for logical/bitwise operations
 [sealed]
 [builtin]
 interface __BuiltinLogicalType : __BuiltinType {}
 
-// A type that logically has a sign (positive/negative/zero)
+/// A type that logically has a sign (positive/negative/zero)
 [sealed]
 [builtin]
 interface __BuiltinSignedArithmeticType : __BuiltinArithmeticType {}
 
-// A type that can represent integers
+/// A type that can represent integers
 [sealed]
 [builtin]
 interface __BuiltinIntegerType : __BuiltinArithmeticType
 {}
 
-// A type that can represent non-integers
+/// A type that can represent non-integers
 [sealed]
 [builtin]
 interface __BuiltinRealType : __BuiltinSignedArithmeticType {}
 
-// A type that uses a floating-point representation
+/// A type that uses a floating-point representation
 [sealed]
 [builtin]
 interface __BuiltinFloatingPointType : __BuiltinRealType
@@ -63,6 +73,8 @@ interface __BuiltinFloatingPointType : __BuiltinRealType
         /// Get the value of the mathematical constant pi in this type.
     static This getPi();
 }
+
+//@ hidden:
 
 // A type resulting from an `enum` declaration.
 [builtin]
@@ -396,6 +408,8 @@ for (int tt = 0; tt < kTypeCount; ++tt)
 // Declare additional built-in generic types
 }}}}
 
+//@ public:
+
 __generic<T>
 __intrinsic_type($(kIROp_ConstantBufferType))
 __magic_type(ConstantBuffer)
@@ -410,6 +424,8 @@ __generic<T>
 __intrinsic_type($(kIROp_ParameterBlockType))
 __magic_type(ParameterBlockType)
 struct ParameterBlock {}
+
+//@ hidden:
 
 ${{{{
 
@@ -564,6 +580,8 @@ ${{{{
 }
 }}}}
 
+
+//@ public:
 
     /// Sampling state for filtered texture fetches.
 __magic_type(SamplerState, $(int(SamplerStateFlavor::SamplerState)))
@@ -1544,6 +1562,11 @@ for (int tt = 0; tt < kBaseTextureTypeCount; ++tt)
     }
 }
 
+}}}}
+
+//@ hidden:
+
+${{{{
 
 for (auto op : intrinsicUnaryOps)
 {
@@ -1923,6 +1946,8 @@ ${{{{
 
 }}}}
 
+//@ public:
+
 // Bit cast
 __generic<T, U>
 [__unsafeForceInlineEarly]
@@ -1931,12 +1956,13 @@ T bit_cast(U value);
 
 // Specialized function
 
+/// Given a string returns an integer hash of that string.
 __intrinsic_op
 int getStringHash(String string);
 
-// Use will produce a syntax error in downstream compiler
-// Useful for testing diagnostics around compilation errors of downstream compiler
-// It 'returns' an int so can be used in expressions without the front end complaining.
+/// Use will produce a syntax error in downstream compiler
+/// Useful for testing diagnostics around compilation errors of downstream compiler
+/// It 'returns' an int so can be used in expressions without the front end complaining.
 __target_intrinsic(hlsl, " @ ")
 __target_intrinsic(glsl, " @ ")
 __target_intrinsic(cuda, " @ ")
@@ -1957,6 +1983,8 @@ void endInvocationInterlock() {}
 
 // Operators to apply to `enum` types
 
+//@ hidden:
+
 __generic<E : __EnumType>
 __intrinsic_op($(kIROp_Eql))
 bool operator==(E left, E right);
@@ -1964,6 +1992,8 @@ bool operator==(E left, E right);
 __generic<E : __EnumType>
 __intrinsic_op($(kIROp_Neq))
 bool operator!=(E left, E right);
+
+//@ public:
 
 // Binding Attributes
 

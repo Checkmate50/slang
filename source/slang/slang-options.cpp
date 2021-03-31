@@ -437,6 +437,8 @@ struct OptionsParser
         // The default archive type is zip
         SlangArchiveType archiveType = SLANG_ARCHIVE_TYPE_ZIP;
 
+        bool compileStdLib = false;
+        slang::CompileStdLibFlags compileStdLibFlags = 0;
         bool hasLoadedRepro = false;
 
         char const* const* argCursor = &argv[0];
@@ -464,7 +466,7 @@ struct OptionsParser
                 }
                 else if (argStr == "-compile-stdlib")
                 {
-                    SLANG_RETURN_ON_FAIL(session->compileStdLib());
+                    compileStdLib = true;
                 }
                 else if (argStr == "-archive-type")
                 {
@@ -527,12 +529,20 @@ struct OptionsParser
                     requestImpl->getFrontEndReq()->shouldDumpIR = true;
                     requestImpl->getBackEndReq()->shouldDumpIR = true;
                 }
+                else if (argStr == "-E" || argStr == "-output-preprocessor")
+                {
+                    requestImpl->getFrontEndReq()->outputPreprocessor = true;
+                }
                 else if (argStr == "-dump-ast")
                 {
                     requestImpl->getFrontEndReq()->shouldDumpAST = true;
                 }
                 else if (argStr == "-doc")
                 {
+                    // If compiling stdlib is enabled, will write out documentation
+                    compileStdLibFlags |= slang::CompileStdLibFlag::WriteDocumentation;
+
+                    // Enable writing out documentation on the req
                     requestImpl->getFrontEndReq()->shouldDocument = true;
                 }
                 else if (argStr == "-dump-repro")
@@ -1107,6 +1117,11 @@ struct OptionsParser
             {
                 SLANG_RETURN_ON_FAIL(addInputPath(arg));
             }
+        }
+
+        if (compileStdLib)
+        {
+            SLANG_RETURN_ON_FAIL(session->compileStdLib(compileStdLibFlags));
         }
 
         // TODO(JS): This is a restriction because of how setting of state works for load repro

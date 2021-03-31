@@ -1,5 +1,4 @@
 #include "renderer-shared.h"
-#include "render-graphics-common.h"
 #include "core/slang-io.h"
 #include "core/slang-token-reader.h"
 
@@ -9,12 +8,10 @@ namespace gfx
 {
 
 const Slang::Guid GfxGUID::IID_ISlangUnknown = SLANG_UUID_ISlangUnknown;
-const Slang::Guid GfxGUID::IID_IDescriptorSetLayout = SLANG_UUID_IDescriptorSetLayout;
-const Slang::Guid GfxGUID::IID_IDescriptorSet = SLANG_UUID_IDescriptorSet;
 const Slang::Guid GfxGUID::IID_IShaderProgram = SLANG_UUID_IShaderProgram;
-const Slang::Guid GfxGUID::IID_IPipelineLayout = SLANG_UUID_IPipelineLayout;
 const Slang::Guid GfxGUID::IID_IInputLayout = SLANG_UUID_IInputLayout;
 const Slang::Guid GfxGUID::IID_IPipelineState = SLANG_UUID_IPipelineState;
+const Slang::Guid GfxGUID::IID_ITransientResourceHeap = SLANG_UUID_ITransientResourceHeap;
 const Slang::Guid GfxGUID::IID_IResourceView = SLANG_UUID_IResourceView;
 const Slang::Guid GfxGUID::IID_IFramebuffer = SLANG_UUID_IFrameBuffer;
 const Slang::Guid GfxGUID::IID_IFramebufferLayout = SLANG_UUID_IFramebufferLayout;
@@ -26,6 +23,14 @@ const Slang::Guid GfxGUID::IID_IBufferResource = SLANG_UUID_IBufferResource;
 const Slang::Guid GfxGUID::IID_ITextureResource = SLANG_UUID_ITextureResource;
 const Slang::Guid GfxGUID::IID_IRenderer = SLANG_UUID_IRenderer;
 const Slang::Guid GfxGUID::IID_IShaderObject = SLANG_UUID_IShaderObject;
+
+const Slang::Guid GfxGUID::IID_IRenderPassLayout = SLANG_UUID_IRenderPassLayout;
+const Slang::Guid GfxGUID::IID_ICommandEncoder = SLANG_UUID_ICommandEncoder;
+const Slang::Guid GfxGUID::IID_IRenderCommandEncoder = SLANG_UUID_IRenderCommandEncoder;
+const Slang::Guid GfxGUID::IID_IComputeCommandEncoder = SLANG_UUID_IComputeCommandEncoder;
+const Slang::Guid GfxGUID::IID_IResourceCommandEncoder = SLANG_UUID_IResourceCommandEncoder;
+const Slang::Guid GfxGUID::IID_ICommandBuffer = SLANG_UUID_ICommandBuffer;
+const Slang::Guid GfxGUID::IID_ICommandQueue = SLANG_UUID_ICommandQueue;
 
 gfx::StageType translateStage(SlangStage slangStage)
 {
@@ -105,54 +110,70 @@ gfx::StageType mapStage(SlangStage stage)
     }
 }
 
-Result createProgramFromSlang(IRenderer* renderer, IShaderProgram::Desc const& originalDesc, IShaderProgram** outProgram)
-{
-    SlangInt targetIndex = 0;
-    auto slangProgram = originalDesc.slangProgram;
-
-    auto programLayout = slangProgram->getLayout(targetIndex);
-    if(!programLayout)
-        return SLANG_FAIL;
-
-    Int entryPointCount = (Int) programLayout->getEntryPointCount();
-    if(entryPointCount == 0)
-        return SLANG_FAIL;
-
-    List<IShaderProgram::KernelDesc> kernelDescs;
-    List<ComPtr<slang::IBlob>> kernelBlobs;
-    for( Int i = 0; i < entryPointCount; ++i )
-    {
-        ComPtr<slang::IBlob> entryPointCodeBlob;
-        SLANG_RETURN_ON_FAIL(slangProgram->getEntryPointCode(i, targetIndex, entryPointCodeBlob.writeRef()));
-
-        auto entryPointLayout = programLayout->getEntryPointByIndex(i);
-
-        kernelBlobs.add(entryPointCodeBlob);
-
-        IShaderProgram::KernelDesc kernelDesc;
-        kernelDesc.codeBegin = entryPointCodeBlob->getBufferPointer();
-        kernelDesc.codeEnd = (const char*) kernelDesc.codeBegin + entryPointCodeBlob->getBufferSize();
-        kernelDesc.entryPointName = entryPointLayout->getName();
-        kernelDesc.stage = mapStage(entryPointLayout->getStage());
-
-        kernelDescs.add(kernelDesc);
-    }
-    SLANG_ASSERT(kernelDescs.getCount() == entryPointCount);
-
-    IShaderProgram::Desc programDesc;
-    programDesc.pipelineType = originalDesc.pipelineType;
-    programDesc.slangProgram = slangProgram;
-    programDesc.kernelCount = kernelDescs.getCount();
-    programDesc.kernels = kernelDescs.getBuffer();
-
-    return renderer->createProgram(programDesc, outProgram);
-}
-
 IShaderObject* gfx::ShaderObjectBase::getInterface(const Guid& guid)
 {
     if (guid == GfxGUID::IID_ISlangUnknown || guid == GfxGUID::IID_IShaderObject)
         return static_cast<IShaderObject*>(this);
     return nullptr;
+}
+
+bool gfx::ShaderObjectBase::_doesValueFitInExistentialPayload(
+    slang::TypeLayoutReflection*    concreteTypeLayout,
+    slang::TypeLayoutReflection*    existentialTypeLayout)
+{
+    // Our task here is to figure out if a value of `concreteTypeLayout`
+    // can fit into an existential value using `existentialTypelayout`.
+
+    // We can start by asking how many bytes the concrete type of the object consumes.
+    //
+    auto concreteValueSize = concreteTypeLayout->getSize();
+
+    // We can also compute how many bytes the existential-type value provides,
+    // but we need to remember that the *payload* part of that value comes after
+    // the header with RTTI and witness-table IDs, so the payload is 16 bytes
+    // smaller than the entire value.
+    //
+    auto existentialValueSize = existentialTypeLayout->getSize();
+    auto existentialPayloadSize = existentialValueSize - 16;
+
+    // If the concrete type consumes more ordinary bytes than we have in the payload,
+    // it cannot possibly fit.
+    //
+    if(concreteValueSize > existentialPayloadSize)
+        return false;
+
+    // It is possible that the ordinary bytes of `concreteTypeLayout` can fit
+    // in the payload, but that type might also use storage other than ordinary
+    // bytes. In that case, the value would *not* fit, because all the non-ordinary
+    // data can't fit in the payload at all.
+    //
+    auto categoryCount = concreteTypeLayout->getCategoryCount();
+    for(unsigned int i = 0; i < categoryCount; ++i)
+    {
+        auto category = concreteTypeLayout->getCategoryByIndex(i);
+        switch(category)
+        {
+        // We want to ignore any ordinary/uniform data usage, since that
+        // was already checked above.
+        //
+        case slang::ParameterCategory::Uniform:
+            break;
+
+        // Any other kind of data consumed means the value cannot possibly fit.
+        default:
+            return false;
+
+        // TODO: Are there any cases of resource usage that need to be ignored here?
+        // E.g., if the sub-object contains its own existential-type fields (which
+        // get reflected as consuming "existential value" storage) should that be
+        // ignored?
+        }
+    }
+
+    // If we didn't reject the concrete type above for either its ordinary
+    // data or some use of non-ordinary data, then it seems like it must fit.
+    //
+    return true;
 }
 
 IShaderProgram* gfx::ShaderProgramBase::getInterface(const Guid& guid)
@@ -178,16 +199,15 @@ void PipelineStateBase::initializeBase(const PipelineStateDesc& inDesc)
     isSpecializable = (program->slangProgram && program->slangProgram->getSpecializationParamCount() != 0);
 }
 
-IRenderer* gfx::RendererBase::getInterface(const Guid& guid)
+IDevice* gfx::RendererBase::getInterface(const Guid& guid)
 {
     return (guid == GfxGUID::IID_ISlangUnknown || guid == GfxGUID::IID_IRenderer)
-        ? static_cast<IRenderer*>(this)
-        : nullptr;
+               ? static_cast<IDevice*>(this)
+               : nullptr;
 }
 
 SLANG_NO_THROW Result SLANG_MCALL RendererBase::initialize(const Desc& desc)
 {
-    shaderCache.init(desc.shaderCacheFileSystem);
     return SLANG_OK;
 }
 
@@ -280,113 +300,9 @@ ShaderComponentID ShaderCache::getComponentId(ComponentKey key)
     return resultId;
 }
 
-void ShaderCache::init(ISlangFileSystem* cacheFileSystem)
-{
-    fileSystem = cacheFileSystem;
-
-    ComPtr<ISlangBlob> indexFileBlob;
-    if (fileSystem && fileSystem->loadFile("index", indexFileBlob.writeRef()) == SLANG_OK)
-    {
-        UnownedStringSlice indexText = UnownedStringSlice(static_cast<const char*>(indexFileBlob->getBufferPointer()));
-        TokenReader reader = TokenReader(indexText);
-        auto componentCountInFileSystem = reader.ReadUInt();
-        for (uint32_t i = 0; i < componentCountInFileSystem; i++)
-        {
-            OwningComponentKey key;
-            auto componentId = reader.ReadUInt();
-            key.typeName = reader.ReadWord();
-            key.specializationArgs.setCount(reader.ReadUInt());
-            for (auto& arg : key.specializationArgs)
-                arg = reader.ReadUInt();
-            componentIds[key] = componentId;
-        }
-    }
-}
-
-void ShaderCache::writeToFileSystem(ISlangMutableFileSystem* outputFileSystem)
-{
-    StringBuilder indexBuilder;
-    indexBuilder << componentIds.Count() << Slang::EndLine;
-    for (auto id : componentIds)
-    {
-        indexBuilder << id.Value << " ";
-        indexBuilder << id.Key.typeName << " " << id.Key.specializationArgs.getCount();
-        for (auto arg : id.Key.specializationArgs)
-            indexBuilder << " " << arg;
-        indexBuilder << Slang::EndLine;
-    }
-    outputFileSystem->saveFile("index", indexBuilder.getBuffer(), indexBuilder.getLength());
-    for (auto& binary : shaderBinaries)
-    {
-        ComPtr<ISlangBlob> blob;
-        binary.Value->writeToBlob(blob.writeRef());
-        outputFileSystem->saveFile(String(binary.Key).getBuffer(), blob->getBufferPointer(), blob->getBufferSize());
-    }
-}
-
-Slang::RefPtr<ShaderBinary> ShaderCache::tryLoadShaderBinary(ShaderComponentID componentId)
-{
-    Slang::ComPtr<ISlangBlob> entryBlob;
-    Slang::RefPtr<ShaderBinary> binary;
-    if (shaderBinaries.TryGetValue(componentId, binary))
-        return binary;
-
-    if (fileSystem && fileSystem->loadFile(String(componentId).getBuffer(), entryBlob.writeRef()) == SLANG_OK)
-    {
-        binary = new ShaderBinary();
-        binary->loadFromBlob(entryBlob.get());
-        return binary;
-    }
-    return nullptr;
-}
-
-void ShaderCache::addShaderBinary(ShaderComponentID componentId, ShaderBinary* binary)
-{
-    shaderBinaries[componentId] = binary;
-}
-
 void ShaderCache::addSpecializedPipeline(PipelineKey key, Slang::ComPtr<IPipelineState> specializedPipeline)
 {
     specializedPipelines[key] = specializedPipeline;
-}
-
-struct ShaderBinaryEntryHeader
-{
-    StageType stage;
-    uint32_t nameLength;
-    uint32_t codeLength;
-};
-
-Result ShaderBinary::loadFromBlob(ISlangBlob* blob)
-{
-    MemoryStreamBase memStream(Slang::FileAccess::Read, blob->getBufferPointer(), blob->getBufferSize());
-    uint32_t nameLength = 0;
-    ShaderBinaryEntryHeader header;
-    if (memStream.read(&header, sizeof(header)) != sizeof(header))
-        return SLANG_FAIL;
-    const uint8_t* name = memStream.getContents().getBuffer() + memStream.getPosition();
-    const uint8_t* code = name + header.nameLength;
-    entryPointName = reinterpret_cast<const char*>(name);
-    stage = header.stage;
-    source.addRange(code, header.codeLength);
-    return SLANG_OK;
-}
-
-Result ShaderBinary::writeToBlob(ISlangBlob** outBlob)
-{
-    OwnedMemoryStream outStream(FileAccess::Write);
-    ShaderBinaryEntryHeader header;
-    header.stage = stage;
-    header.nameLength = static_cast<uint32_t>(entryPointName.getLength() + 1);
-    header.codeLength = static_cast<uint32_t>(source.getCount());
-    outStream.write(&header, sizeof(header));
-    outStream.write(entryPointName.getBuffer(), header.nameLength - 1);
-    uint8_t zeroTerminator = 0;
-    outStream.write(&zeroTerminator, 1);
-    outStream.write(source.getBuffer(), header.codeLength);
-    RefPtr<RawBlob> blob = new RawBlob(outStream.getContents().getBuffer(), outStream.getContents().getCount());
-    *outBlob = blob.detach();
-    return SLANG_OK;
 }
 
 void ShaderObjectLayoutBase::initBase(RendererBase* renderer, slang::TypeLayoutReflection* elementTypeLayout)
@@ -399,6 +315,11 @@ void ShaderObjectLayoutBase::initBase(RendererBase* renderer, slang::TypeLayoutR
 // Get the final type this shader object represents. If the shader object's type has existential fields,
 // this function will return a specialized type using the bound sub-objects' type as specialization argument.
 Result ShaderObjectBase::getSpecializedShaderObjectType(ExtendedShaderObjectType* outType)
+{
+    return _getSpecializedShaderObjectType(outType);
+}
+
+Result ShaderObjectBase::_getSpecializedShaderObjectType(ExtendedShaderObjectType* outType)
 {
     if (shaderObjectType.slangType)
         *outType = shaderObjectType;
@@ -420,9 +341,13 @@ Result ShaderObjectBase::getSpecializedShaderObjectType(ExtendedShaderObjectType
     return SLANG_OK;
 }
 
-Result RendererBase::maybeSpecializePipeline(ShaderObjectBase* rootObject)
+Result RendererBase::maybeSpecializePipeline(
+    PipelineStateBase* currentPipeline,
+    ShaderObjectBase* rootObject,
+    RefPtr<PipelineStateBase>& outNewPipeline)
 {
-    auto currentPipeline = getCurrentPipeline();
+    outNewPipeline = static_cast<PipelineStateBase*>(currentPipeline);
+    
     auto pipelineType = currentPipeline->desc.type;
     if (currentPipeline->unspecializedPipelineState)
         currentPipeline = currentPipeline->unspecializedPipelineState;
@@ -438,78 +363,32 @@ Result RendererBase::maybeSpecializePipeline(ShaderObjectBase* rootObject)
         pipelineKey.specializationArgs.addRange(specializationArgs.componentIDs);
         pipelineKey.updateHash();
 
-        ComPtr<gfx::IPipelineState> specializedPipelineState = shaderCache.getSpecializedPipelineState(pipelineKey);
+        ComPtr<IPipelineState> specializedPipelineState = shaderCache.getSpecializedPipelineState(pipelineKey);
         // Try to find specialized pipeline from shader cache.
         if (!specializedPipelineState)
         {
             auto unspecializedProgram = static_cast<ShaderProgramBase*>(pipelineType == PipelineType::Compute
                 ? currentPipeline->desc.compute.program
                 : currentPipeline->desc.graphics.program);
-            List<RefPtr<ShaderBinary>> entryPointBinaries;
             auto unspecializedProgramLayout = unspecializedProgram->slangProgram->getLayout();
-            for (SlangUInt i = 0; i < unspecializedProgramLayout->getEntryPointCount(); i++)
+
+            ComPtr<slang::IComponentType> specializedComponentType;
+            ComPtr<slang::IBlob> diagnosticBlob;
+            auto compileRs = unspecializedProgram->slangProgram->specialize(
+                specializationArgs.components.getArrayView().getBuffer(),
+                specializationArgs.getCount(),
+                specializedComponentType.writeRef(),
+                diagnosticBlob.writeRef());
+            if (compileRs != SLANG_OK)
             {
-                auto unspecializedEntryPoint = unspecializedProgramLayout->getEntryPointByIndex(i);
-                UnownedStringSlice entryPointName = UnownedStringSlice(unspecializedEntryPoint->getName());
-                ComponentKey specializedKernelKey;
-                specializedKernelKey.typeName = entryPointName;
-                specializedKernelKey.specializationArgs.addRange(specializationArgs.componentIDs);
-                specializedKernelKey.updateHash();
-                // If the pipeline is not created, check if the kernel binaries has been compiled.
-                auto specializedKernelComponentID = shaderCache.getComponentId(specializedKernelKey);
-                RefPtr<ShaderBinary> binary = shaderCache.tryLoadShaderBinary(specializedKernelComponentID);
-                if (!binary)
-                {
-                    // If the specialized shader binary does not exist in cache, use slang to generate it.
-                    entryPointBinaries.clear();
-                    ComPtr<slang::IComponentType> specializedComponentType;
-                    ComPtr<slang::IBlob> diagnosticBlob;
-                    auto result = unspecializedProgram->slangProgram->specialize(specializationArgs.components.getArrayView().getBuffer(),
-                        specializationArgs.getCount(), specializedComponentType.writeRef(), diagnosticBlob.writeRef());
-
-                    // TODO: print diagnostic message via debug output interface.
-
-                    if (result != SLANG_OK)
-                        return result;
-
-                    // Cache specialized binaries.
-                    auto programLayout = specializedComponentType->getLayout();
-                    for (SlangUInt j = 0; j < programLayout->getEntryPointCount(); j++)
-                    {
-                        auto entryPointLayout = programLayout->getEntryPointByIndex(j);
-                        ComPtr<slang::IBlob> entryPointCode;
-                        SLANG_RETURN_ON_FAIL(specializedComponentType->getEntryPointCode(j, 0, entryPointCode.writeRef(), diagnosticBlob.writeRef()));
-                        binary = new ShaderBinary();
-                        binary->stage = gfx::translateStage(entryPointLayout->getStage());
-                        binary->entryPointName = entryPointLayout->getName();
-                        binary->source.addRange((uint8_t*)entryPointCode->getBufferPointer(), entryPointCode->getBufferSize());
-                        entryPointBinaries.add(binary);
-                        shaderCache.addShaderBinary(specializedKernelComponentID, binary);
-                    }
-
-                    // We have already obtained all kernel binaries from this program, so break out of the outer loop since we no longer
-                    // need to examine the rest of the kernels.
-                    break;
-                }
-                entryPointBinaries.add(binary);
+                printf("%s\n", (char*)diagnosticBlob->getBufferPointer());
+                return SLANG_FAIL;
             }
 
             // Now create specialized shader program using compiled binaries.
             ComPtr<IShaderProgram> specializedProgram;
             IShaderProgram::Desc specializedProgramDesc = {};
-            specializedProgramDesc.kernelCount = unspecializedProgramLayout->getEntryPointCount();
-            ShortList<IShaderProgram::KernelDesc> kernelDescs;
-            kernelDescs.setCount(entryPointBinaries.getCount());
-            for (Slang::Index i = 0; i < entryPointBinaries.getCount(); i++)
-            {
-                auto entryPoint = unspecializedProgramLayout->getEntryPointByIndex(i);;
-                auto& kernelDesc = kernelDescs[i];
-                kernelDesc.stage = entryPointBinaries[i]->stage;
-                kernelDesc.entryPointName = entryPointBinaries[i]->entryPointName.getBuffer();
-                kernelDesc.codeBegin = entryPointBinaries[i]->source.begin();
-                kernelDesc.codeEnd = entryPointBinaries[i]->source.end();
-            }
-            specializedProgramDesc.kernels = kernelDescs.getArrayView().getBuffer();
+            specializedProgramDesc.slangProgram = specializedComponentType;
             specializedProgramDesc.pipelineType = pipelineType;
             SLANG_RETURN_ON_FAIL(createProgram(specializedProgramDesc, specializedProgram.writeRef()));
 
@@ -537,7 +416,7 @@ Result RendererBase::maybeSpecializePipeline(ShaderObjectBase* rootObject)
             specializedPipelineStateBase->unspecializedPipelineState = currentPipeline;
             shaderCache.addSpecializedPipeline(pipelineKey, specializedPipelineState);
         }
-        setPipelineState(specializedPipelineState);
+        outNewPipeline = static_cast<PipelineStateBase*>(specializedPipelineState.get());
     }
     return SLANG_OK;
 }
