@@ -52,6 +52,15 @@ ComPtr<gfx::IPipelineState>  gPipelineState;
 
 struct UniformState;
 
+// Helper function for print out diagnostic messages output by Slang compiler.
+void diagnoseIfNeeded(slang::IBlob* diagnosticsBlob)
+{
+    if (diagnosticsBlob != nullptr)
+    {
+        printf("%s", (const char*)diagnosticsBlob->getBufferPointer());
+    }
+}
+
 static SlangResult _innerMain(int argc, char** argv)
 {
     ComPtr<slang::IGlobalSession> slangGlobalSession;
@@ -59,78 +68,37 @@ static SlangResult _innerMain(int argc, char** argv)
 
     TestToolUtil::setSessionDefaultPreludeFromExePath(argv[0], slangGlobalSession);
 
-    SlangCompileRequest* slangPTXRequest = spCreateCompileRequest(slangGlobalSession);
-
-    int targetIndex = spAddCodeGenTarget(slangPTXRequest, SLANG_PTX);
-    spSetTargetFlags(slangPTXRequest, targetIndex, SLANG_TARGET_FLAG_GENERATE_WHOLE_PROGRAM);
-
-    int translationUnitIndex = spAddTranslationUnit(slangPTXRequest, SLANG_SOURCE_LANGUAGE_SLANG, nullptr);
-    spAddTranslationUnitSourceFile(slangPTXRequest, translationUnitIndex, "shader.slang");
-    const SlangResult compilePTXRes = spCompile(slangPTXRequest);
-
-    ComPtr<slang::IModule> slangPTXModule;
-    spCompileRequest_getModule(slangPTXRequest, translationUnitIndex, slangPTXModule.writeRef());
-
-    ComPtr<slang::IEntryPoint> PTXEntryPoint;
-    slangPTXModule->findEntryPointByName("computeMain", PTXEntryPoint.writeRef());
-    if (!PTXEntryPoint) return SLANG_FAIL;
-
-    ComPtr<slang::IComponentType> linkedPTXProgram;
-    PTXEntryPoint->link(linkedPTXProgram.writeRef());
-    if (!linkedPTXProgram) return SLANG_FAIL;
-
-    if (auto diagnostics = spGetDiagnosticOutput(slangPTXRequest))
-    {
-        printf("%s", diagnostics);
-    }
-
-    // If compilation failed, there is no point in continuing any further.
-    if (SLANG_FAILED(compilePTXRes))
-    {
-        spDestroyCompileRequest(slangPTXRequest);
-        return compilePTXRes;
-    }
-
-    // We build up another compilation request to get the raw CUDA code
-    // This raw CUDA code is necessary to build the module description
-    slang::TargetDesc targetDesc;
-    targetDesc.format = SLANG_CUDA_SOURCE;
-    targetDesc.profile = spFindProfile(slangGlobalSession, "sm_5_0");
-
-    slang::SessionDesc sessionDesc;
-    sessionDesc.targetCount = 1;
-    sessionDesc.targets = &targetDesc;
+    gfx::IRenderer::Desc rendererDesc;
+    rendererDesc.rendererType = gfx::RendererType::CUDA;
+    SLANG_RETURN_ON_FAIL(gfxCreateRenderer(&rendererDesc, gRenderer.writeRef()));
 
     ComPtr<slang::ISession> slangSession;
-    slangGlobalSession->createSession(sessionDesc, slangSession.writeRef());
+    SLANG_RETURN_ON_FAIL(gRenderer->getSlangSession(slangSession.writeRef()));
 
-    SlangCompileRequest* slangCUDARequest;
-    slangSession->createCompileRequest(&slangCUDARequest);
+    ComPtr<slang::IBlob> diagnosticsBlob;
+    slang::IModule* module = slangSession->loadModule("shader", diagnosticsBlob.writeRef());
+    diagnoseIfNeeded(diagnosticsBlob);
+    if(!module)
+        return SLANG_FAIL;
 
-    int translationCUDAUnitIndex = spAddTranslationUnit(slangCUDARequest, SLANG_SOURCE_LANGUAGE_SLANG, nullptr);
-    spAddTranslationUnitSourceFile(slangCUDARequest, translationCUDAUnitIndex, "shader.slang");
-    const SlangResult compileCUDARes = spCompile(slangCUDARequest);
+    char const* computeEntryPointName    = "computeMain";
+    ComPtr<slang::IEntryPoint> computeEntryPoint;
+    SLANG_RETURN_ON_FAIL(
+        module->findEntryPointByName(computeEntryPointName, computeEntryPoint.writeRef()));
 
-    if (auto diagnostics = spGetDiagnosticOutput(slangCUDARequest))
-    {
-        printf("%s", diagnostics);
-    }
+    Slang::List<slang::IComponentType*> componentTypes;
+    componentTypes.add(module);
+    componentTypes.add(computeEntryPoint);
 
-    // If compilation failed, there is no point in continuing any further.
-    if (SLANG_FAILED(compileCUDARes))
-    {
-        spDestroyCompileRequest(slangCUDARequest);
-        return compileCUDARes;
-    }
+    ComPtr<slang::IComponentType> composedProgram;
+    SlangResult result = slangSession->createCompositeComponentType(
+        componentTypes.getBuffer(),
+        componentTypes.getCount(),
+        composedProgram.writeRef(),
+        diagnosticsBlob.writeRef());
+    diagnoseIfNeeded(diagnosticsBlob);
 
-    ISlangBlob* computeShaderBlob = nullptr;
-    spGetTargetCodeBlob(slangPTXRequest, 0, &computeShaderBlob);
-    if (!computeShaderBlob) return SLANG_FAIL;
-
-    char const* computeCode = (char const*) computeShaderBlob->getBufferPointer();
-    char const* computeCodeEnd = computeCode + computeShaderBlob->getBufferSize();
-
-    spDestroyCompileRequest(slangPTXRequest);
+    SLANG_RETURN_ON_FAIL(result);
 
     struct UniformState
     {
@@ -150,13 +118,9 @@ static SlangResult _innerMain(int argc, char** argv)
     const CPPPrelude::uint3 startGroupID = { 0, 0, 0};
     const CPPPrelude::uint3 endGroupID = { 1, 1, 1 };
 
-    gfx::IRenderer::Desc rendererDesc;
-    rendererDesc.rendererType = gfx::RendererType::CUDA;
-    SLANG_RETURN_ON_FAIL(gfxCreateRenderer(&rendererDesc, nullptr, gRenderer.writeRef()));
-
     gfx::IShaderProgram::Desc programDesc = {};
     programDesc.pipelineType = gfx::PipelineType::Compute;
-    programDesc.slangProgram = linkedPTXProgram.get();
+    programDesc.slangProgram = composedProgram.get();
 
     gProgram = gRenderer->createProgram(programDesc);
     if (!gProgram) return SLANG_FAIL;
@@ -195,6 +159,7 @@ static SlangResult _innerMain(int argc, char** argv)
 
     gRenderer->setPipelineState(pipelineState);
     gRenderer->dispatchCompute(4, 1, 1);
+    gRenderer->endFrame();
     gRenderer->waitForGpu();
 
     // Print out the values before the computation
